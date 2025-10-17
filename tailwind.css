@@ -1,0 +1,31 @@
+/* tailwind.css - local overrides and small utilities */
+
+/* Make canvas crisp and fill its container */
+canvas#pianoRoll {
+  display: block;
+}
+
+/* Range input better visibility on dark bg */
+input[type="range"] {
+  accent-color: #60a5fa; /* tailwind blue-400 */
+}
+
+/* Material icon shim if system has font */
+.material-icons {
+  font-family: 'Material Icons', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* Optional pulse animation for keys (can be used later) */
+@keyframes pulseKey {
+  0% { filter: brightness(1); }
+  35% { filter: brightness(1.15); }
+  100% { filter: brightness(1); }
+}
+
+.key-pulse {
+  animation: pulseKey 180ms ease-in-out;
+}
