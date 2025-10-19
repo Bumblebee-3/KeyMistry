@@ -79,6 +79,8 @@ const fsPlayPause = document.getElementById('fsPlayPause');
 const fsPlayPauseIcon = document.getElementById('fsPlayPauseIcon');
 const pianoFsCanvasWrap = document.getElementById('pianoFsCanvasWrap');
 let canvasOriginalParent = null;
+// Small delay to allow scheduling/audio engine to settle before first notes
+const START_DELAY = 0.07; // 70ms
 
 // Piano constants
 const FIRST_MIDI = 21; // A0
@@ -197,7 +199,7 @@ function resizeCanvas() {
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   // Redraw current frame on resize
-  const t = Tone.Transport.seconds || 0;
+  const t = getPlaybackTime() || 0;
   drawNotes(t);
   drawKeyboard();
 }
@@ -460,14 +462,16 @@ function buildTrackUI() {
     row.appendChild(solo);
     tracksPanel.appendChild(row);
 
-    // Create a polysynth per track for playback
-    const synth = new Tone.PolySynth(Tone.Synth, {
-      volume: -8,
-      oscillator: { type: "triangle" },
-      // Slightly longer release to reduce choppiness
-      envelope: { attack: 0.01, decay: 0.1, sustain: 0.25, release: 1.05 },
-    }).toDestination();
-    app.synths[idx] = synth;
+    // Create a polysynth per track only when using local audio
+    if (shouldUseLocalAudio()) {
+      const synth = new Tone.PolySynth(Tone.Synth, {
+        volume: -8,
+        oscillator: { type: "triangle" },
+        // Slightly longer release to reduce choppiness
+        envelope: { attack: 0.01, decay: 0.1, sustain: 0.25, release: 1.05 },
+      }).toDestination();
+      app.synths[idx] = synth;
+    }
   });
 }
 
@@ -492,7 +496,9 @@ function scheduleIfNeeded() {
     filtered.forEach((n) => {
       const time = n.time + now;
       Tone.Transport.schedule((schedTime) => {
-        synth.triggerAttackRelease(Tone.Frequency(n.midi, "midi").toFrequency(), n.duration, schedTime, n.velocity);
+        if (shouldUseLocalAudio() && synth) {
+          synth.triggerAttackRelease(Tone.Frequency(n.midi, "midi").toFrequency(), n.duration, schedTime, n.velocity);
+        }
         // Mirror to MIDI OUT with channel
         sendNoteOn(n.midi, Math.round(n.velocity * 127), t.channel);
       }, time);
@@ -543,7 +549,7 @@ function scheduleIfNeeded() {
 
   // Update UI every frame during playback
   Tone.Transport.scheduleRepeat(() => {
-    const t = Tone.Transport.seconds;
+    const t = getPlaybackTime();
     updateTimeUI(t);
   // Metronome indicator removed
     updateStaffScroll(t);
@@ -580,10 +586,12 @@ function rescheduleTransport() {
 // -------------------------------------------------------------
 btnPlay.addEventListener("click", async () => {
   await Tone.start(); // iOS/Chrome gesture requirement
+  try { Tone.getContext().lookAhead = Math.max(0.1, Tone.getContext().lookAhead || 0.12); } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   scheduleIfNeeded();
   await doCountdownIfNeeded();
-  Tone.Transport.start();
+  // Kick off slightly in the future to avoid initial underruns/glitches
+  Tone.Transport.start(`+${START_DELAY}`);
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
   // Practice waits are scheduled via scheduleIfNeeded
@@ -608,7 +616,8 @@ btnRestart.addEventListener("click", () => {
   Tone.Transport.stop();
   Tone.Transport.seconds = 0;
   scheduleIfNeeded();
-  Tone.Transport.start();
+  // Start with a tiny offset for smoother first notes
+  Tone.Transport.start(`+${START_DELAY}`);
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
 });
@@ -617,6 +626,7 @@ progress.addEventListener("input", () => {
   if (!app.midi) return;
   const pct = parseFloat(progress.value) / 100;
   const t = pct * app.duration;
+  // Seek directly in transport seconds to match scheduled note times
   Tone.Transport.seconds = t;
   updateTimeUI(t);
   // Clear and redraw a single clean frame on seek to avoid stacking trails
@@ -751,12 +761,18 @@ fsExit?.addEventListener('click', () => {
 });
 fsPlayPause?.addEventListener('click', async () => {
   await Tone.start();
+  try {
+    Tone.getContext().latencyHint = 'interactive';
+    Tone.getContext().lookAhead = Math.max(0.1, Tone.getContext().lookAhead || 0.12);
+  } catch {}
   if (Tone.Transport.state === 'started') {
     Tone.Transport.pause();
     fsPlayPauseIcon.textContent = 'Play';
   } else {
     scheduleIfNeeded();
-    Tone.Transport.start();
+    // If starting from the very beginning, apply small delay, else start immediately
+    const atStart = (Tone.Transport.seconds || 0) < 0.02;
+    Tone.Transport.start(atStart ? `+${START_DELAY}` : undefined);
     startAnimation();
     fsPlayPauseIcon.textContent = 'Pause';
   }
@@ -1080,9 +1096,11 @@ function startAnimation() {
   cancelAnimationFrame(rafId);
   const loop = () => {
     if (!animRunning) return;
-    const t = Tone.Transport.seconds;
+    const t = getPlaybackTime();
     drawNotes(t);
     drawKeyboard();
+    // Also advance UI timer/progress here to be robust
+    updateTimeUI(t);
     lastTimeDrawn = t;
     rafId = requestAnimationFrame(loop);
   };
@@ -1103,13 +1121,23 @@ function stopAnimation({ clear = false } = {}) {
 function updateTimeUI(t) {
   const d = app.duration || 0;
   timeLabel.textContent = `${formatTime(t)} / ${formatTime(d)}`;
-  progress.value = d ? String((t / d) * 100) : "0";
+  const pct = d ? (t / d) * 100 : 0;
+  const clamped = Math.max(0, Math.min(100, pct));
+  if (!isNaN(clamped)) setProgressPercent(clamped);
   if (d && t >= d) {
     // Auto stop
     Tone.Transport.stop();
     stopAnimation({ clear: true });
     if (modeSelect.value === 'practice') showFeedback();
   }
+}
+
+function setProgressPercent(pct) {
+  try {
+    progress.value = String(pct);
+    // Let CSS paint the left side using a CSS custom property
+    progress.style.setProperty('--progress', `${pct}%`);
+  } catch {}
 }
 
 // Staff helpers removed
@@ -1168,23 +1196,35 @@ function populateMIDIDevices() {
   }
   if (midiOutSelect) {
     midiOutSelect.innerHTML = '';
+    const DEFAULT_OUT_ID = 'default';
+    // Always include a default (WebAudio) option at the top
+    const defOpt = document.createElement('option');
+    defOpt.value = DEFAULT_OUT_ID;
+    defOpt.textContent = 'Default (WebAudio)';
+    midiOutSelect.appendChild(defOpt);
     for (const [id, output] of app.midiIO.outputs) {
       const opt = document.createElement('option');
       opt.value = id;
       opt.textContent = output.name || id;
       midiOutSelect.appendChild(opt);
     }
-    if (app.midiIO.outId && app.midiIO.outputs.has(app.midiIO.outId)) {
+    if (app.midiIO.outId && (app.midiIO.outId === DEFAULT_OUT_ID || app.midiIO.outputs.has(app.midiIO.outId))) {
       midiOutSelect.value = app.midiIO.outId;
     } else if (midiOutSelect.options.length) {
-      midiOutSelect.selectedIndex = 0;
-      app.midiIO.outId = midiOutSelect.value;
+      // Default to WebAudio (local) by default
+      midiOutSelect.value = DEFAULT_OUT_ID;
+      app.midiIO.outId = DEFAULT_OUT_ID;
     }
-    app.midiIO.output = app.midiIO.outputs.get(app.midiIO.outId) || null;
+    app.midiIO.output = (app.midiIO.outId && app.midiIO.outId !== DEFAULT_OUT_ID) ? (app.midiIO.outputs.get(app.midiIO.outId) || null) : null;
     midiOutSelect.onchange = () => {
       app.midiIO.outId = midiOutSelect.value;
-      app.midiIO.output = app.midiIO.outputs.get(app.midiIO.outId) || null;
+      app.midiIO.output = (app.midiIO.outId && app.midiIO.outId !== DEFAULT_OUT_ID) ? (app.midiIO.outputs.get(app.midiIO.outId) || null) : null;
       savePref('midiOutId', app.midiIO.outId);
+      // Rebuild synths depending on whether local audio should be used
+      try { app.synths.forEach(s => s.dispose?.()); } catch {}
+      app.synths = [];
+      buildTrackUI();
+      rescheduleTransport();
     };
   }
   // Status
@@ -1595,4 +1635,14 @@ function colorForIncoming(midi) {
   // Fallback
   return handColorForMidi(midi);
 }
+
+// Use local audio only when no MIDI output device is selected
+function shouldUseLocalAudio() {
+  // Only use local audio if the selected output is the default (WebAudio)
+  return !app.midiIO.output; // output is null when 'default' is selected
+}
+
+// ------------------------- Time helpers -------------------------
+// Return raw transport seconds for UI/progress to match scheduled events exactly.
+function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
 

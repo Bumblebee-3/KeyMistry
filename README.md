@@ -4,7 +4,7 @@
   <img src="assets/image.png" alt="LearnPiano screenshot" width="820" />
 </p>
 
-A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with a glossy piano roll, connect your MIDI keyboard for interactive practice, and track your progress.
+A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with piano roll, connect your MIDI keyboard for interactive practice, and track your progress.
 
 
 ---
@@ -14,14 +14,12 @@ A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and
 - MIDI file loader (drag & drop via Upload) + "Load Previous" (persists last song in localStorage)
 - MIDI controls (Play, Pause, Stop, Restart)
 - Piano roll visualization
-  - Rounded, glossy note blocks with soft glow and drop shadows
   - Hand-based colors (Left = Blue, Right = Orange)
   - Optional trails, adjustable fall time, note border radius, and bounce visuals
   - Virtual keyboard with track-colored glow and red outlines for visibility
 - Audio & timing via Tone.js
   - Per-track polysynth playback
   - Tempo slider scales BPM (keeps visuals in sync)
-  - Optional metronome and visual beat indicator
 - Web MIDI input & output
   - Detect and select MIDI In/Out devices
   - MIDI Thru (echo input to output)
@@ -34,8 +32,6 @@ A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and
   - Pulse UI on required notes; wrong notes flash; continues when all required notes are pressed
   - Hand isolation (Left/Right/Both), Loop section, Note-wait toggle
   - Countdown overlay before starting
-  - Simple staff/timeline panel with auto-scroll
-  - Post-practice summary (accuracy, timing, missed notes)
 - Preferences persisted in localStorage
   - Mode, Practice toggle, Note-wait, Metronome
   - Tempo factor, Note radius, Fall time, Trails, Bounce
@@ -52,7 +48,7 @@ A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and
     npx serve
 ```
 
-Open the app in Chrome or Edge (Web MIDI supported). Grant MIDI permissions when prompted.
+Open the app in Chrome or Edge or Firefox (Web MIDI supported). Grant MIDI permissions when prompted.
 
 ---
 
@@ -69,16 +65,13 @@ Open the app in Chrome or Edge (Web MIDI supported). Grant MIDI permissions when
    - The last loaded file is auto-loaded on startup
 3. Controls
    - Play ▶, Pause ⏸, Stop ⏹, Restart ⟳
-4. Tempo & Metronome
-   - Tempo slider changes BPM relative to the file’s original tempo
-   - Metronome toggles a click and a visual beat indicator
-5. Practice
+4. Practice
    - Switch Mode to Practice (or toggle the Practice switch)
    - Enable Note-wait to pause at the next notes/chord
    - Choose Hand (Left/Right/Both), set Loop start/end (in seconds)
    - Start playback (countdown appears), and play the required notes to continue
    - At the end, see your accuracy and missed notes
-6. Visualization
+5. Visualization
    - Adjust Note radius (Square/Soft/Pill), Fall time, Trails, and Bounce
    - Toggle Staff View in the Tracks panel
 
