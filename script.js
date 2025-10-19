@@ -1,6 +1,10 @@
 import * as Tone from "https://cdn.skypack.dev/tone@14.8.49";
 import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
 
+if (window.__LP_BLOCKED) {
+  // Export an empty module to satisfy type=module
+}
+
 const fileInput = document.getElementById("fileInput");
 const btnLoadPrevious = document.getElementById("btnLoadPrevious");
 const btnPlay = document.getElementById("btnPlay");
