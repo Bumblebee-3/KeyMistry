@@ -5,13 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>LearnPiano - MIDI Practice</title>
 
-    <!-- Tailwind CSS (CDN) -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Local overrides and small custom styles -->
     <link rel="stylesheet" href="./tailwind.css" />
 
-    <!-- Tone.js & @tonejs/midi (ESM friendly) -->
-    <!-- Note: These are loaded via native ES Modules from CDNs in script.js -->
 
     <meta name="color-scheme" content="dark" />
   </head>
@@ -64,6 +60,8 @@
               </svg>
             </button>
 
+            
+
             <!-- Practice / Listen -->
             <div class="flex items-center gap-2 ml-auto">
               <label class="text-sm opacity-90">Mode:</label>
@@ -91,11 +89,6 @@
 
           <!-- Options Row -->
           <div class="flex flex-wrap items-center gap-4">
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="metronomeToggle" type="checkbox" class="accent-blue-500" />
-              Metronome
-            </label>
-
             <div class="flex items-center gap-2 text-sm">
               <label for="speed" class="opacity-90">Tempo</label>
               <input id="speed" type="range" min="0.5" max="1.5" value="1" step="0.05" />
@@ -103,49 +96,13 @@
             </div>
 
             <div class="text-sm opacity-80">Score: <span id="score">0</span></div>
-            <div id="midiStatus" class="text-xs opacity-70"></div>
+            <div id="midiStatus" class="text-xs opacity-70 hidden"></div>
+            
           </div>
 
-          <!-- Visualization Settings -->
-          <div class="flex flex-wrap items-center gap-4 pt-2 border-t border-gray-700">
-            <div class="flex items-center gap-2 text-sm">
-              <label for="radiusSelect" class="opacity-90">Note radius</label>
-              <select id="radiusSelect" class="px-2 py-1 bg-gray-700 rounded-lg border border-gray-600">
-                <option value="square">Square</option>
-                <option value="soft" selected>Soft</option>
-                <option value="pill">Pill</option>
-              </select>
-            </div>
-
-            <div class="flex items-center gap-2 text-sm">
-              <label for="fallTime" class="opacity-90">Fall time</label>
-              <input id="fallTime" type="range" min="2" max="8" value="4" step="0.5" />
-              <span id="fallTimeLabel" class="w-14 text-right">4.0s</span>
-            </div>
-
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="trailToggle" type="checkbox" class="accent-blue-500" checked />
-              Trails
-            </label>
-
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="bounceToggle" type="checkbox" class="accent-blue-500" checked />
-              Bounce
-            </label>
-
-            <!-- Hand Isolation -->
-            <div class="flex items-center gap-2 text-sm ml-auto">
-              <span class="opacity-80">Hands:</span>
-              <div class="inline-flex rounded-lg overflow-hidden border border-gray-600">
-                <button id="handLeft" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Left</button>
-                <button id="handBoth" class="px-2 py-1 bg-blue-600">Both</button>
-                <button id="handRight" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Right</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Loop section + countdown/metronome indicator row -->
-          <div class="flex flex-wrap items-center gap-4 pt-2">
+          <!-- Hand Isolation (moved out; keep visible here) -->
+          <div class="flex items-center gap-2 pt-2 border-t border-gray-700">
+            <div class="flex flex-wrap items-center gap-4 pt-2">
             <label class="inline-flex items-center gap-2 text-sm">
               <input id="loopToggle" type="checkbox" class="accent-blue-500" />
               Loop
@@ -156,13 +113,21 @@
               <label for="loopEnd" class="opacity-90">End (s)</label>
               <input id="loopEnd" type="number" step="0.1" min="0" value="0" class="w-20 bg-gray-800 rounded-md border border-gray-700 px-2 py-1" />
             </div>
-            <div class="flex items-center gap-2 text-sm">
-              <span class="opacity-80">Beat</span>
-              <div id="beatIndicator" class="w-3 h-3 rounded-full bg-gray-600 shadow-inner"></div>
+          </div>
+            <div class="flex items-center gap-2 text-sm ml-auto mt-4">
+              <span class="opacity-80">Hands:</span>
+              <div class="inline-flex rounded-lg overflow-hidden border border-gray-600">
+                <button id="handLeft" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Left</button>
+                <button id="handBoth" class="px-2 py-1 bg-blue-600">Both</button>
+                <button id="handRight" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Right</button>
+              </div>
             </div>
           </div>
+
         </div>
       </section>
+
+      
 
       <!-- Main Content: Tracks + Canvas -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -170,21 +135,21 @@
         <aside class="lg:col-span-3 bg-gray-800/70 border border-gray-700 rounded-2xl p-4 h-[60vh] overflow-auto">
           <h2 class="text-sm font-semibold uppercase tracking-wider opacity-80 mb-3">Tracks</h2>
           <div id="tracksPanel" class="flex flex-col gap-2"></div>
-          <div class="mt-4 border-t border-gray-700 pt-3">
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="staffToggle" type="checkbox" class="accent-blue-500" />
-              Staff View
-            </label>
-            <div id="staffPanel" class="mt-2 hidden text-xs space-y-1 max-h-48 overflow-auto">
-              <!-- Simplified staff lines will be injected here -->
-            </div>
-          </div>
         </aside>
 
         <!-- Piano Roll Canvas -->
         <section class="lg:col-span-9 bg-gray-800/70 border border-gray-700 rounded-2xl p-2">
           <div class="relative w-full h-[60vh] rounded-xl overflow-hidden bg-gray-900">
             <canvas id="pianoRoll" class="block w-full h-full"></canvas>
+            <!-- Fullscreen trigger on-canvas -->
+            <button id="btnPianoMode" class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-emerald-600/90 hover:bg-emerald-500 rounded-md shadow" aria-label="Piano Mode" title="Piano Mode">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+                <path d="M3 9V3h6" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M21 15v6h-6" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M3 15v6h6" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M21 9V3h-6" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </button>
             <div id="overlayMsg" class="absolute inset-x-0 top-4 mx-auto w-fit bg-gray-800/70 border border-gray-700 px-3 py-1 rounded-full text-xs hidden"></div>
             <div id="countdown" class="absolute inset-x-0 top-1/3 mx-auto text-6xl font-bold text-white/90 drop-shadow-lg hidden"></div>
           </div>
@@ -221,48 +186,123 @@
       </div>
     </div>
 
-    <script type="module" src="./script.js"></script>
-  </body>
-  
-  <!-- MIDI Settings Modal -->
-  <div id="midiModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
-    <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <span id="midiConnDot" class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-          <h3 class="text-lg font-semibold">MIDI Settings</h3>
+    <!-- Fullscreen Piano Overlay -->
+    <div id="pianoFs" class="fixed inset-0 bg-gray-900 hidden z-50">
+      <div class="absolute inset-0 flex flex-col">
+        <div class="flex items-center justify-between p-3">
+          <button id="fsExit" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl">Exit</button>
+          <button id="fsPlayPause" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center gap-2">
+            <span id="fsPlayPauseIcon">Play</span>
+          </button>
         </div>
-        <button id="midiClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
-      </div>
-      <div class="space-y-3">
-        <div>
-          <label class="block text-sm opacity-80 mb-1">MIDI Input</label>
-          <select id="midiInSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
+        <div id="pianoFsCanvasWrap" class="flex-1 relative">
+          <!-- existing canvas will be moved here in piano mode -->
         </div>
-        <div>
-          <label class="block text-sm opacity-80 mb-1">MIDI Output</label>
-          <select id="midiOutSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
-        </div>
-        <div class="flex items-center justify-between gap-2">
-          <label class="text-sm opacity-80">Sustain Tail</label>
-          <div class="flex items-center gap-2">
-            <input id="tailMsInput" type="range" min="0" max="150" step="10" value="60" />
-            <span id="tailMsLabel" class="text-sm w-12 text-right">60ms</span>
-          </div>
-        </div>
-        <div class="flex items-center justify-between gap-2">
-          <label class="inline-flex items-center gap-2 text-sm select-none">
-            <input id="midiThruToggle" type="checkbox" class="accent-blue-500" />
-            MIDI Thru (echo input to output)
-          </label>
-          <div class="flex items-center gap-2">
-            <button id="refreshMIDI" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">Refresh</button>
-            <button id="testNoteBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Test Note</button>
-          </div>
-        </div>
-        <p class="text-xs opacity-70">Tip: Web MIDI requires HTTPS or localhost. Hot-plugging is supported.</p>
       </div>
     </div>
-  </div>
 
+    <!-- Settings Modal with Tabs -->
+    <div id="midiModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
+      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span id="midiConnDot" class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <h3 class="text-lg font-semibold">Settings</h3>
+          </div>
+          <button id="midiClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
+        </div>
+        <!-- Tabs -->
+        <div class="flex border-b border-gray-700 mb-3 text-sm">
+          <button id="settingsTabMidi" class="px-4 py-2 -mb-px border-b-2 border-blue-500 text-blue-400">MIDI</button>
+          <button id="settingsTabVisuals" class="px-4 py-2 -mb-px border-b-2 border-transparent hover:text-gray-300">Visuals</button>
+        </div>
+        <!-- Tabs Content (fixed height for consistent modal size) -->
+        <div id="settingsTabsContent" class="h-80 overflow-y-auto">
+          <!-- MIDI Tab Content -->
+          <div id="midiSettingsTab" class="space-y-3">
+            <div>
+              <label class="block text-sm opacity-80 mb-1">MIDI Input</label>
+              <select id="midiInSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
+            </div>
+            <div>
+              <label class="block text-sm opacity-80 mb-1">MIDI Output</label>
+              <select id="midiOutSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-sm opacity-80">Sustain Tail</label>
+              <div class="flex items-center gap-2">
+                <input id="tailMsInput" type="range" min="0" max="150" step="10" value="60" />
+                <span id="tailMsLabel" class="text-sm w-12 text-right">60ms</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="inline-flex items-center gap-2 text-sm select-none">
+                <input id="midiThruToggle" type="checkbox" class="accent-blue-500" />
+                MIDI Thru (echo input to output)
+              </label>
+              <div class="flex items-center gap-2">
+                <button id="refreshMIDI" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">Refresh</button>
+                <button id="testNoteBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Test Note</button>
+              </div>
+            </div>
+            <p class="text-xs opacity-70">Tip: Web MIDI requires HTTPS or localhost. Hot-plugging is supported.</p>
+          </div>
+          <!-- Visuals Tab Content -->
+          <div id="visualSettingsTab" class="space-y-3 hidden">
+            <div class="flex items-center justify-between gap-2">
+              <label for="radiusSelect" class="text-sm opacity-80">Note radius</label>
+              <select id="radiusSelect" class="px-2 py-1 bg-gray-900 rounded-lg border border-gray-700">
+                <option value="square">Square</option>
+                <option value="soft" selected>Soft</option>
+                <option value="pill">Pill</option>
+              </select>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label for="fallTime" class="text-sm opacity-80">Fall time</label>
+              <div class="flex items-center gap-2">
+                <input id="fallTime" type="range" min="1" max="6" value="4" step="0.5" />
+                <span id="fallTimeLabel" class="text-sm w-14 text-right">4.0s</span>
+              </div>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="enhancedToggle" type="checkbox" class="accent-blue-500" />
+              Enhanced visuals
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="hitLineToggle" type="checkbox" class="accent-blue-500" checked />
+              Hit line
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="gridToggle" type="checkbox" class="accent-blue-500" />
+              Beat grid
+            </label>
+            <div class="flex items-center justify-between gap-2">
+              <label for="glowIntensity" class="text-sm opacity-80">Glow</label>
+              <div class="flex items-center gap-2">
+                <input id="glowIntensity" type="range" min="0" max="2" value="1" step="0.1" />
+                <span id="glowIntensityLabel" class="text-sm w-14 text-right">1.0x</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-2 hidden">
+              <label for="noteOpacity" class="text-sm opacity-80">Note opacity</label>
+              <div class="flex items-center gap-2">
+                <input id="noteOpacity" type="range" min="0.5" max="1" value="0.95" step="0.05" />
+                <span id="noteOpacityLabel" class="text-sm w-14 text-right">95%</span>
+              </div>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="trailToggle" type="checkbox" class="accent-blue-500" checked />
+              Trails
+            </label>
+            <label class="inline-flex items-center gap-2 text-sm">
+              <input id="bounceToggle" type="checkbox" class="accent-blue-500" checked />
+              Bounce
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="./script.js"></script>
+  </body>
 </html>
