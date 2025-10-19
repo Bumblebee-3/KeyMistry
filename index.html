@@ -8,22 +8,21 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./tailwind.css" />
 
-
     <meta name="color-scheme" content="dark" />
   </head>
   <body class="bg-gray-900 text-gray-100 min-h-screen">
     <div class="max-w-7xl mx-auto px-4 py-6">
-      <!-- Header -->
+      
       <header class="flex items-center justify-between mb-4">
         <h1 class="text-2xl font-bold tracking-tight">LearnPiano</h1>
         <div class="text-sm opacity-80">Static MIDI Trainer</div>
       </header>
 
-      <!-- Controls Card -->
+      
       <section class="bg-gray-800/70 border border-gray-700 rounded-2xl shadow-lg p-4 mb-4">
         <div class="flex flex-col gap-4">
           <div class="flex flex-wrap items-center gap-3">
-            <!-- Upload -->
+            
             <label class="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition">
               <input id="fileInput" type="file" accept=".mid,.midi" class="hidden" />
               <span class="material-icons">file_upload</span>
@@ -31,7 +30,7 @@
             </label>
             <button id="btnLoadPrevious" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition">Load Previous</button>
 
-            <!-- Playback Controls -->
+            
             <button id="btnPlay" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl transition shadow" aria-label="Play" title="Play">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
                 <path d="M8 5v14l11-7-11-7z" />
@@ -53,7 +52,7 @@
               </svg>
             </button>
 
-            <!-- MIDI Settings (cog icon) -->
+            
             <button id="openMIDISettings" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition" aria-label="MIDI Settings" title="MIDI Settings">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
                 <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.07 7.07 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 1h-3.8a.5.5 0 0 0-.49.41l-.36 2.54c-.58.22-1.13.52-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 7.47a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 13.15a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.5.42 1.05.72 1.63.94l.36 2.54c.05.24.25.41.49.41h3.8c.24 0 .45-.17.49-.41l.36-2.54c.58-.22 1.13-.52 1.63-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
@@ -62,7 +61,7 @@
 
             
 
-            <!-- Practice / Listen -->
+            
             <div class="flex items-center gap-2 ml-auto">
               <label class="text-sm opacity-90">Mode:</label>
               <select id="modeSelect" class="px-2 py-1 bg-gray-700 rounded-lg border border-gray-600">
@@ -73,7 +72,7 @@
                 <input id="noteWaitToggle" type="checkbox" class="accent-blue-500" />
                 Note-wait
               </label>
-              <!-- Practice Mode quick toggle -->
+              
               <label class="inline-flex items-center gap-2 text-sm ml-2 select-none">
                 <span>Practice</span>
                 <input id="practiceToggle" type="checkbox" class="accent-emerald-500" />
@@ -81,13 +80,13 @@
             </div>
           </div>
 
-          <!-- Progress & Time -->
+          
           <div class="flex items-center gap-3">
             <input id="progress" type="range" min="0" max="100" value="0" step="0.1" class="w-full" />
             <div id="timeLabel" class="text-sm tabular-nums min-w-[140px] text-right">00:00 / 00:00</div>
           </div>
 
-          <!-- Options Row -->
+          
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex items-center gap-2 text-sm">
               <label for="speed" class="opacity-90">Tempo</label>
@@ -100,7 +99,7 @@
             
           </div>
 
-          <!-- Hand Isolation (moved out; keep visible here) -->
+          
           <div class="flex items-center gap-2 pt-2 border-t border-gray-700">
             <div class="flex flex-wrap items-center gap-4 pt-2">
             <label class="inline-flex items-center gap-2 text-sm">
@@ -129,19 +128,19 @@
 
       
 
-      <!-- Main Content: Tracks + Canvas -->
+      
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <!-- Track Controls -->
+        
         <aside class="lg:col-span-3 bg-gray-800/70 border border-gray-700 rounded-2xl p-4 h-[60vh] overflow-auto">
           <h2 class="text-sm font-semibold uppercase tracking-wider opacity-80 mb-3">Tracks</h2>
           <div id="tracksPanel" class="flex flex-col gap-2"></div>
         </aside>
 
-        <!-- Piano Roll Canvas -->
+        
         <section class="lg:col-span-9 bg-gray-800/70 border border-gray-700 rounded-2xl p-2">
           <div class="relative w-full h-[60vh] rounded-xl overflow-hidden bg-gray-900">
             <canvas id="pianoRoll" class="block w-full h-full"></canvas>
-            <!-- Fullscreen trigger on-canvas -->
+            
             <button id="btnPianoMode" class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-emerald-600/90 hover:bg-emerald-500 rounded-md shadow" aria-label="Piano Mode" title="Piano Mode">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
                 <path d="M3 9V3h6" stroke-linecap="round" stroke-linejoin="round" />
@@ -156,12 +155,12 @@
         </section>
       </div>
 
-      <!-- Footer keyboard legend -->
+      
       <footer class="mt-6 text-xs opacity-70">
       </footer>
     </div>
 
-    <!-- Feedback Modal -->
+    
     <div id="feedbackModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-[90%] p-4">
         <div class="flex items-center justify-between mb-3">
@@ -186,7 +185,7 @@
       </div>
     </div>
 
-    <!-- Fullscreen Piano Overlay -->
+    
     <div id="pianoFs" class="fixed inset-0 bg-gray-900 hidden z-50">
       <div class="absolute inset-0 flex flex-col">
         <div class="flex items-center justify-between p-3">
@@ -196,12 +195,12 @@
           </button>
         </div>
         <div id="pianoFsCanvasWrap" class="flex-1 relative">
-          <!-- existing canvas will be moved here in piano mode -->
+          
         </div>
       </div>
     </div>
 
-    <!-- Settings Modal with Tabs -->
+    
     <div id="midiModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
         <div class="flex items-center justify-between mb-3">
@@ -211,14 +210,14 @@
           </div>
           <button id="midiClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
         </div>
-        <!-- Tabs -->
+        
         <div class="flex border-b border-gray-700 mb-3 text-sm">
           <button id="settingsTabMidi" class="px-4 py-2 -mb-px border-b-2 border-blue-500 text-blue-400">MIDI</button>
           <button id="settingsTabVisuals" class="px-4 py-2 -mb-px border-b-2 border-transparent hover:text-gray-300">Visuals</button>
         </div>
-        <!-- Tabs Content (fixed height for consistent modal size) -->
+        
         <div id="settingsTabsContent" class="h-80 overflow-y-auto">
-          <!-- MIDI Tab Content -->
+          
           <div id="midiSettingsTab" class="space-y-3">
             <div>
               <label class="block text-sm opacity-80 mb-1">MIDI Input</label>
@@ -247,7 +246,7 @@
             </div>
             <p class="text-xs opacity-70">Tip: Web MIDI requires HTTPS or localhost. Hot-plugging is supported.</p>
           </div>
-          <!-- Visuals Tab Content -->
+          
           <div id="visualSettingsTab" class="space-y-3 hidden">
             <div class="flex items-center justify-between gap-2">
               <label for="radiusSelect" class="text-sm opacity-80">Note radius</label>

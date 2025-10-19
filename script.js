@@ -1,9 +1,5 @@
-// script.js - LearnPiano static MIDI trainer
-
 import * as Tone from "https://cdn.skypack.dev/tone@14.8.49";
 import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
-// VexFlow removed
-
 
 const fileInput = document.getElementById("fileInput");
 const btnLoadPrevious = document.getElementById("btnLoadPrevious");
@@ -20,7 +16,7 @@ const tracksPanel = document.getElementById("tracksPanel");
 const scoreEl = document.getElementById("score");
 const midiStatus = document.getElementById("midiStatus");
 const overlayMsg = document.getElementById("overlayMsg");
-// Practice UI controls and panels
+
 const noteWaitToggle = document.getElementById("noteWaitToggle");
 const handLeftBtn = document.getElementById("handLeft");
 const handRightBtn = document.getElementById("handRight");
@@ -29,14 +25,14 @@ const loopToggle = document.getElementById("loopToggle");
 const loopStartInput = document.getElementById("loopStart");
 const loopEndInput = document.getElementById("loopEnd");
 const countdownEl = document.getElementById("countdown");
-// Staff view removed
+
 const feedbackModal = document.getElementById("feedbackModal");
 const feedbackClose = document.getElementById("feedbackClose");
 const accPercentEl = document.getElementById("accPercent");
 const accCorrectEl = document.getElementById("accCorrect");
 const accTotalEl = document.getElementById("accTotal");
 const missListEl = document.getElementById("missList");
-// MIDI settings modal elements
+
 const openMIDISettingsBtn = document.getElementById("openMIDISettings");
 const midiModal = document.getElementById("midiModal");
 const midiClose = document.getElementById("midiClose");
@@ -49,13 +45,12 @@ const midiThruToggle = document.getElementById("midiThruToggle");
 const practiceToggle = document.getElementById("practiceToggle");
 const tailMsInput = document.getElementById("tailMsInput");
 const tailMsLabel = document.getElementById("tailMsLabel");
-// Settings modal tabs
+
 const settingsTabMidi = document.getElementById('settingsTabMidi');
 const settingsTabVisuals = document.getElementById('settingsTabVisuals');
 const midiSettingsTab = document.getElementById('midiSettingsTab');
 const visualSettingsTab = document.getElementById('visualSettingsTab');
 
-// Visualization controls
 const radiusSelect = document.getElementById("radiusSelect");
 const fallTime = document.getElementById("fallTime");
 const fallTimeLabel = document.getElementById("fallTimeLabel");
@@ -71,7 +66,7 @@ const glowIntensityLabel = document.getElementById("glowIntensityLabel");
 
 const canvas = document.getElementById("pianoRoll");
 const ctx = canvas.getContext("2d");
-// Fullscreen piano elements
+
 const btnPianoMode = document.getElementById('btnPianoMode');
 const pianoFs = document.getElementById('pianoFs');
 const fsExit = document.getElementById('fsExit');
@@ -79,43 +74,30 @@ const fsPlayPause = document.getElementById('fsPlayPause');
 const fsPlayPauseIcon = document.getElementById('fsPlayPauseIcon');
 const pianoFsCanvasWrap = document.getElementById('pianoFsCanvasWrap');
 let canvasOriginalParent = null;
-// Small delay to allow scheduling/audio engine to settle before first notes
-const START_DELAY = 0.07; // 70ms
 
-// Piano constants
-const FIRST_MIDI = 21; // A0
-const LAST_MIDI = 108; // C8
-const TOTAL_KEYS = LAST_MIDI - FIRST_MIDI + 1; // 88 keys
+const START_DELAY = 0.07; 
 
-// Layout constants
+const FIRST_MIDI = 21; 
+const LAST_MIDI = 108; 
+const TOTAL_KEYS = LAST_MIDI - FIRST_MIDI + 1; 
+
 let WIDTH = 0;
 let HEIGHT = 0;
-const KEYBOARD_HEIGHT = 90; // px reserved at bottom
-let NOTE_FALL_DURATION = 4; // seconds from top to hit line (configurable)
-const HIT_LINE_Y = HEIGHT - KEYBOARD_HEIGHT - 4; // updated on resize
+const KEYBOARD_HEIGHT = 90; 
+let NOTE_FALL_DURATION = 4; 
+const HIT_LINE_Y = HEIGHT - KEYBOARD_HEIGHT - 4; 
 
-// Track colors (cycling)
 const TRACK_COLORS = [
-  "#60a5fa", // blue-400
-  "#34d399", // emerald-400
-  "#fbbf24", // amber-400
-  "#f87171", // red-400
-  "#a78bfa", // violet-400
-  "#fb7185", // rose-400
-  "#4ade80", // green-400
-  "#22d3ee", // cyan-400
+  "#60a5fa", 
+  "#34d399", 
+  "#fbbf24", 
+  "#f87171", 
+  "#a78bfa", 
+  "#fb7185", 
+  "#4ade80", 
+  "#22d3ee", 
 ];
 
-/** @type {{
- *  midi?: Midi,
- *  duration?: number,
- *  tracks: Array<{name: string, color: string, muted: boolean, solo: boolean, notes: Array<{midi:number,time:number,duration:number,velocity:number,trackIndex:number,id:string}>}>,
- *  scheduled: boolean,
- *  synths: Tone.PolySynth[],
- *  score: number,
- *  expectedNotesByTime: Map<number, Array<{midi:number, time:number, id:string, hit:boolean, trackIndex:number}>>,
- *  liveKeys: Set<number>
- * }} */
 const app = {
   midi: undefined,
   duration: 0,
@@ -124,20 +106,20 @@ const app = {
   synths: [],
   score: 0,
   expectedNotesByTime: new Map(),
-  liveKeys: new Set(), // keys currently pressed from Web MIDI input
-  keyGlow: new Map(), // midi -> {state: 'fade-in'|'hold'|'fade-out', start:number, end?:number, color:string}
-  upcomingKeys: new Set(), // keys expected within preview window
-  _lastLandingFlash: new Map(), // midi -> perfNow (ms) debounce
+  liveKeys: new Set(), 
+  keyGlow: new Map(), 
+  upcomingKeys: new Set(), 
+  _lastLandingFlash: new Map(), 
   practice: {
     noteWait: false,
-    hand: 'both', // 'left' | 'right' | 'both'
+    hand: 'both', 
     loop: { enabled: false, start: 0, end: 0 },
     waiting: false,
-    nextExpected: null, // deprecated single-note path
-    groups: [], // [{time:number, notes:number[], ids:string[] }]
+    nextExpected: null, 
+    groups: [], 
     currentIndex: 0,
-    requiredSet: new Set(), // required midis for current wait
-    hitSet: new Set(), // hit midis from user during current wait
+    requiredSet: new Set(), 
+    hitSet: new Set(), 
     lastWaitTime: -1,
     stats: { total: 0, correct: 0, misses: [], timings: [] },
   },
@@ -153,11 +135,7 @@ const app = {
     tailMs: 60,
   }
 };
-app._originalBpm = 120; // store the song's original BPM
-
-// Staff view removed
-
-
+app._originalBpm = 120; 
 
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const formatTime = (sec) => {
@@ -189,16 +167,13 @@ function updatePreviousButtonLabel() {
   } catch {}
 }
 
-// -------------------------------------------------------------
-// Resize and canvas setup
-// -------------------------------------------------------------
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   WIDTH = Math.floor(rect.width);
   HEIGHT = Math.floor(rect.height);
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
-  // Redraw current frame on resize
+
   const t = getPlaybackTime() || 0;
   drawNotes(t);
   drawKeyboard();
@@ -211,9 +186,6 @@ function hitLineY() {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-// -------------------------------------------------------------
-// Preferences (localStorage)
-// -------------------------------------------------------------
 const PREF_PREFIX = 'lp_pref_';
 function savePref(key, value) {
   try { localStorage.setItem(PREF_PREFIX + key, JSON.stringify(value)); } catch {}
@@ -225,21 +197,20 @@ function loadPref(key, def) {
   } catch { return def; }
 }
 function applyPrefsToUI() {
-  // Mode & practice
+
   const mode = loadPref('mode', null);
   if (mode && modeSelect) modeSelect.value = mode;
   const practice = loadPref('practiceToggle', null);
   if (practice != null && practiceToggle) practiceToggle.checked = !!practice;
   const noteWait = loadPref('noteWait', null);
   if (noteWait != null && noteWaitToggle) noteWaitToggle.checked = !!noteWait;
-  // Metronome removed
-  // Tempo factor (applied to BPM later in initFromMidi)
+
   const tempo = loadPref('tempoFactor', null);
   if (tempo != null && speed) {
     speed.value = String(tempo);
     speedLabel.textContent = `${Math.round(tempo * 100)}%`;
   }
-  // Visualization
+
   const radius = loadPref('radius', null);
   if (radius && radiusSelect) radiusSelect.value = radius;
   const fall = loadPref('fallTime', null);
@@ -252,7 +223,7 @@ function applyPrefsToUI() {
   if (trails != null && trailToggle) trailToggle.checked = !!trails;
   const bounce = loadPref('bounce', null);
   if (bounce != null && bounceToggle) bounceToggle.checked = !!bounce;
-  // Enhanced visuals options
+
   const enh = loadPref('enhanced', null);
   if (enh != null && enhancedToggle) enhancedToggle.checked = !!enh;
   const hitLine = loadPref('hitLine', null);
@@ -269,7 +240,7 @@ function applyPrefsToUI() {
     glowIntensity.value = String(glow);
     if (glowIntensityLabel) glowIntensityLabel.textContent = `${parseFloat(glow).toFixed(1)}x`;
   }
-  // Practice
+
   const hand = loadPref('hand', null);
   if (hand) setHand(hand);
   const loopEn = loadPref('loopEnabled', null);
@@ -278,8 +249,7 @@ function applyPrefsToUI() {
   if (loopStart != null && loopStartInput) loopStartInput.value = String(loopStart);
   const loopEnd = loadPref('loopEnd', null);
   if (loopEnd != null && loopEndInput) loopEndInput.value = String(loopEnd);
-  // Staff prefs removed
-  // MIDI settings
+
   const thru = loadPref('midiThru', null);
   if (thru != null && midiThruToggle) midiThruToggle.checked = !!thru;
   const tail = loadPref('tailMs', null);
@@ -288,14 +258,11 @@ function applyPrefsToUI() {
     if (tailMsLabel) tailMsLabel.textContent = `${tail}ms`;
     app.midiIO.tailMs = parseInt(tail, 10);
   }
-  // Preferred device IDs
+
   app.midiIO.inId = loadPref('midiInId', app.midiIO.inId);
   app.midiIO.outId = loadPref('midiOutId', app.midiIO.outId);
 }
 
-// -------------------------------------------------------------
-// MIDI file handling
-// -------------------------------------------------------------
 fileInput.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -304,7 +271,7 @@ fileInput.addEventListener("change", async (e) => {
     const midi = new Midi(arrayBuffer);
     initFromMidi(midi);
     showOverlay(`Loaded: ${file.name}`);
-    // Persist last MIDI in localStorage as base64
+
     try {
       const bytes = new Uint8Array(arrayBuffer);
       const b64 = btoa(String.fromCharCode(...bytes));
@@ -347,7 +314,6 @@ function initFromMidi(midi) {
   scoreEl.textContent = String(app.score);
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
 
-  // Compute duration
   let duration = 0;
   midi.tracks.forEach((t) => {
     t.notes.forEach((n) => {
@@ -356,7 +322,6 @@ function initFromMidi(midi) {
   });
   app.duration = duration;
 
-  // Set BPM from MIDI header if available
   try {
     const bpm = midi?.header?.tempos?.[0]?.bpm;
     if (bpm && isFinite(bpm)) {
@@ -368,13 +333,11 @@ function initFromMidi(midi) {
     }
   } catch {}
 
-  // Reset tempo slider and label
   if (speed) {
     speed.value = '1';
     speedLabel.textContent = '100%';
   }
 
-  // Build tracks and collect notes
   app.tracks = midi.tracks.map((t, i) => {
     const color = TRACK_COLORS[i % TRACK_COLORS.length];
     const channel = (typeof t.channel === 'number') ? t.channel : 0;
@@ -397,11 +360,10 @@ function initFromMidi(midi) {
     };
   });
 
-  // Index expected notes for scoring by quantized time bucket (100ms)
   app.expectedNotesByTime.clear();
   for (const track of app.tracks) {
     for (const n of track.notes) {
-      const bucket = Math.round(n.time * 10) / 10; // 100ms buckets
+      const bucket = Math.round(n.time * 10) / 10; 
       const list = app.expectedNotesByTime.get(bucket) || [];
       list.push({ midi: n.midi, time: n.time, id: n.id, hit: false, trackIndex: n.trackIndex });
       app.expectedNotesByTime.set(bucket, list);
@@ -411,14 +373,10 @@ function initFromMidi(midi) {
   buildTrackUI();
   rescheduleTransport();
   updateTimeUI(0);
-  // Staff rendering removed
-  // Build practice groups for current hand
+
   buildPracticeGroups();
 }
 
-// -------------------------------------------------------------
-// Track UI
-// -------------------------------------------------------------
 function buildTrackUI() {
   tracksPanel.innerHTML = "";
   app.synths.forEach((s) => s.dispose());
@@ -462,12 +420,11 @@ function buildTrackUI() {
     row.appendChild(solo);
     tracksPanel.appendChild(row);
 
-    // Create a polysynth per track only when using local audio
     if (shouldUseLocalAudio()) {
       const synth = new Tone.PolySynth(Tone.Synth, {
         volume: -8,
         oscillator: { type: "triangle" },
-        // Slightly longer release to reduce choppiness
+
         envelope: { attack: 0.01, decay: 0.1, sustain: 0.25, release: 1.05 },
       }).toDestination();
       app.synths[idx] = synth;
@@ -475,16 +432,10 @@ function buildTrackUI() {
   });
 }
 
-// -------------------------------------------------------------
-// Scheduling playback with Tone.Transport
-// -------------------------------------------------------------
 function scheduleIfNeeded() {
   if (!app.midi || app.scheduled) return;
   Tone.Transport.cancel();
   const now = 0;
-
-  // Optional metronome
-  // Metronome removed
 
   const isSoloActive = app.tracks.some((t) => t.solo);
 
@@ -499,19 +450,19 @@ function scheduleIfNeeded() {
         if (shouldUseLocalAudio() && synth) {
           synth.triggerAttackRelease(Tone.Frequency(n.midi, "midi").toFrequency(), n.duration, schedTime, n.velocity);
         }
-        // Mirror to MIDI OUT with channel
+
         sendNoteOn(n.midi, Math.round(n.velocity * 127), t.channel);
       }, time);
-      // Schedule key press visual start
+
       Tone.Transport.schedule(() => {
         app.liveKeys.add(n.midi);
         startKeyGlow(n.midi, true, colorForNoteObj(n));
       }, time);
-      // Schedule key release visual end
+
       Tone.Transport.schedule(() => {
         app.liveKeys.delete(n.midi);
         startKeyGlow(n.midi, false, colorForNoteObj(n));
-        // Delay external noteOff slightly to create a small sustain tail
+
         const offDelay = app.midiIO.tailMs / 1000;
         setTimeout(() => sendNoteOff(n.midi, t.channel), Math.max(0, offDelay * 1000));
       }, time + n.duration);
@@ -519,7 +470,6 @@ function scheduleIfNeeded() {
     });
   });
 
-  // Schedule sustain pedal (CC64) events to MIDI OUT (let device handle sustain)
   if (app.midi) {
     const isSolo = isSoloActive;
     app.midi.tracks.forEach((mt, mi) => {
@@ -536,7 +486,6 @@ function scheduleIfNeeded() {
     });
   }
 
-  // Practice waits: schedule pause slightly before each group time
   if (modeSelect.value === 'practice') {
     buildPracticeGroups();
     app.practice.groups.forEach((g, idx) => {
@@ -547,13 +496,12 @@ function scheduleIfNeeded() {
     });
   }
 
-  // Update UI every frame during playback
   Tone.Transport.scheduleRepeat(() => {
     const t = getPlaybackTime();
     updateTimeUI(t);
-  // Metronome indicator removed
+
     updateStaffScroll(t);
-    // Looping
+
     if (app.practice.loop.enabled) {
       const { start, end } = app.practice.loop;
       if (end > start && t >= end) {
@@ -579,22 +527,17 @@ function rescheduleTransport() {
   }
 }
 
-// Metronome scheduling removed
-
-// -------------------------------------------------------------
-// Controls
-// -------------------------------------------------------------
 btnPlay.addEventListener("click", async () => {
-  await Tone.start(); // iOS/Chrome gesture requirement
+  await Tone.start(); 
   try { Tone.getContext().lookAhead = Math.max(0.1, Tone.getContext().lookAhead || 0.12); } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   scheduleIfNeeded();
   await doCountdownIfNeeded();
-  // Kick off slightly in the future to avoid initial underruns/glitches
+
   Tone.Transport.start(`+${START_DELAY}`);
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
-  // Practice waits are scheduled via scheduleIfNeeded
+
 });
 
 btnPause.addEventListener("click", () => {
@@ -616,7 +559,7 @@ btnRestart.addEventListener("click", () => {
   Tone.Transport.stop();
   Tone.Transport.seconds = 0;
   scheduleIfNeeded();
-  // Start with a tiny offset for smoother first notes
+
   Tone.Transport.start(`+${START_DELAY}`);
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
@@ -626,10 +569,10 @@ progress.addEventListener("input", () => {
   if (!app.midi) return;
   const pct = parseFloat(progress.value) / 100;
   const t = pct * app.duration;
-  // Seek directly in transport seconds to match scheduled note times
+
   Tone.Transport.seconds = t;
   updateTimeUI(t);
-  // Clear and redraw a single clean frame on seek to avoid stacking trails
+
   ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   drawNotes(t);
   drawKeyboard();
@@ -637,14 +580,11 @@ progress.addEventListener("input", () => {
 
 speed.addEventListener("input", () => {
   const v = parseFloat(speed.value);
-  // Keep playbackRate at 1.0 to avoid drifting Transport.seconds vs. our visual timeline;
-  // instead scale BPM around song's original BPM so events stay aligned.
+
   const newBpm = clamp(app._originalBpm * v, 20, 300);
   Tone.Transport.bpm.value = newBpm;
   speedLabel.textContent = `${Math.round(v * 100)}%`;
 });
-
-// Metronome toggle removed
 
 modeSelect.addEventListener("change", () => {
   showOverlay(`${modeSelect.value === "practice" ? "Practice" : "Listen"} Mode`);
@@ -677,13 +617,10 @@ loopEndInput?.addEventListener('input', () => {
   savePref('loopEnd', app.practice.loop.end);
 });
 
-// Staff UI listeners removed
-
 feedbackClose?.addEventListener('click', () => {
   feedbackModal.classList.add('hidden');
 });
 
-// MIDI modal wiring
 openMIDISettingsBtn?.addEventListener('click', () => midiModal?.classList.remove('hidden'));
 midiClose?.addEventListener('click', () => midiModal?.classList.add('hidden'));
 refreshMIDI?.addEventListener('click', () => initMIDI(true));
@@ -695,7 +632,7 @@ practiceToggle?.addEventListener('change', () => {
   savePref('practiceToggle', on);
 });
 testNoteBtn?.addEventListener('click', () => {
-  // Middle C test
+
   sendNoteOn(60, 100);
   setTimeout(() => sendNoteOff(60), 250 + (app.midiIO.tailMs || 0));
 });
@@ -709,15 +646,14 @@ tailMsInput?.addEventListener('input', () => {
   if (tailMsLabel) tailMsLabel.textContent = `${v}ms`;
 });
 
-// Settings tabs switching
 function showMidiTab() {
   if (!midiSettingsTab || !visualSettingsTab || !settingsTabMidi || !settingsTabVisuals) return;
   midiSettingsTab.classList.remove('hidden');
   visualSettingsTab.classList.add('hidden');
-  // Active style
+
   settingsTabMidi.classList.add('text-blue-400', 'border-blue-500');
   settingsTabMidi.classList.remove('border-transparent');
-  // Inactive style
+
   settingsTabVisuals.classList.remove('text-blue-400', 'border-blue-500');
   settingsTabVisuals.classList.add('border-transparent');
 }
@@ -725,10 +661,10 @@ function showVisualsTab() {
   if (!midiSettingsTab || !visualSettingsTab || !settingsTabMidi || !settingsTabVisuals) return;
   midiSettingsTab.classList.add('hidden');
   visualSettingsTab.classList.remove('hidden');
-  // Active style
+
   settingsTabVisuals.classList.add('text-blue-400', 'border-blue-500');
   settingsTabVisuals.classList.remove('border-transparent');
-  // Inactive style
+
   settingsTabMidi.classList.remove('text-blue-400', 'border-blue-500');
   settingsTabMidi.classList.add('border-transparent');
 }
@@ -736,15 +672,14 @@ settingsTabMidi?.addEventListener('click', showMidiTab);
 settingsTabVisuals?.addEventListener('click', showVisualsTab);
 openMIDISettingsBtn?.addEventListener('click', () => {
   midiModal?.classList.remove('hidden');
-  // default to MIDI tab on open
+
   showMidiTab();
 });
 
-// Persist common preferences
 radiusSelect?.addEventListener('change', () => savePref('radius', radiusSelect.value));
 trailToggle?.addEventListener('change', () => savePref('trails', trailToggle.checked));
 bounceToggle?.addEventListener('change', () => savePref('bounce', bounceToggle.checked));
-// Fullscreen piano mode wiring
+
 btnPianoMode?.addEventListener('click', () => {
   if (!pianoFs || !pianoFsCanvasWrap) return;
   canvasOriginalParent = canvas.parentElement;
@@ -770,7 +705,7 @@ fsPlayPause?.addEventListener('click', async () => {
     fsPlayPauseIcon.textContent = 'Play';
   } else {
     scheduleIfNeeded();
-    // If starting from the very beginning, apply small delay, else start immediately
+
     const atStart = (Tone.Transport.seconds || 0) < 0.02;
     Tone.Transport.start(atStart ? `+${START_DELAY}` : undefined);
     startAnimation();
@@ -783,25 +718,22 @@ gridToggle?.addEventListener('change', () => savePref('grid', gridToggle.checked
 noteOpacity?.addEventListener('input', () => { const v = parseFloat(noteOpacity.value || '0.95'); savePref('noteOpacity', v); if (noteOpacityLabel) noteOpacityLabel.textContent = `${Math.round(v*100)}%`; });
 glowIntensity?.addEventListener('input', () => { const v = parseFloat(glowIntensity.value || '1'); savePref('glowIntensity', v); if (glowIntensityLabel) glowIntensityLabel.textContent = `${v.toFixed(1)}x`; });
 
-// -------------------------------------------------------------
-// Drawing helpers
-// -------------------------------------------------------------
 function isBlackKey(midi) {
   const pitchClass = midi % 12;
   return [1, 3, 6, 8, 10].includes(pitchClass);
 }
 
 function midiToX(midi) {
-  // Map MIDI 21..108 to [0, WIDTH)
+
   const idx = midi - FIRST_MIDI;
   const whiteKeys = [];
   for (let i = FIRST_MIDI; i <= LAST_MIDI; i++) if (!isBlackKey(i)) whiteKeys.push(i);
   const keyWidth = WIDTH / whiteKeys.length;
-  // Place black keys between whites; we compute x by counting preceding white keys
+
   let whiteIndex = 0;
   for (let i = FIRST_MIDI; i < midi; i++) if (!isBlackKey(i)) whiteIndex++;
   let x = whiteIndex * keyWidth;
-  // Center black keys between neighboring whites
+
   if (isBlackKey(midi)) x -= keyWidth * 0.3;
   return x;
 }
@@ -819,12 +751,11 @@ function keyWidthFor(midi) {
 function drawKeyboard() {
   const kbY = HEIGHT - KEYBOARD_HEIGHT;
   ctx.save();
-  // Background
-  ctx.fillStyle = "#0b1220"; // slightly darker for contrast
+
+  ctx.fillStyle = "#0b1220"; 
   ctx.fillRect(0, kbY, WIDTH, KEYBOARD_HEIGHT);
 
-  // White keys
-  ctx.fillStyle = "#f9fafb"; // gray-50
+  ctx.fillStyle = "#f9fafb"; 
   let wIdx = 0;
   const whiteKeys = [];
   for (let m = FIRST_MIDI; m <= LAST_MIDI; m++) {
@@ -836,7 +767,7 @@ function drawKeyboard() {
   whiteKeys.forEach((m) => {
     const x = wIdx * whiteW;
     const pressed = app.liveKeys.has(m);
-    // Glow level based on keyGlow state
+
     const glow = getKeyGlowLevel(m);
     const color = getKeyGlowColor(m, "#60a5fa");
     const fill = "#ffffff";
@@ -844,7 +775,7 @@ function drawKeyboard() {
     ctx.fillRect(x, kbY, whiteW - 1, KEYBOARD_HEIGHT);
     ctx.fillStyle = "#111827";
     ctx.fillRect(x + whiteW - 1, kbY, 1, KEYBOARD_HEIGHT);
-    // colored glow overlay for pressed/highlighted white keys
+
     if (pressed || glow > 0.01) {
       const grad = ctx.createLinearGradient(x, kbY, x, kbY + KEYBOARD_HEIGHT);
       grad.addColorStop(0, hexToRgba(color, 0.55 * glow + (pressed ? 0.35 : 0)));
@@ -852,14 +783,13 @@ function drawKeyboard() {
       ctx.fillStyle = grad;
       ctx.fillRect(x, kbY, whiteW - 1, KEYBOARD_HEIGHT);
     }
-    // red outline for visibility (stronger when pressed)
-    ctx.strokeStyle = pressed ? "rgba(239,68,68,0.95)" : "rgba(239,68,68,0.6)"; // red-500
+
+    ctx.strokeStyle = pressed ? "rgba(239,68,68,0.95)" : "rgba(239,68,68,0.6)"; 
     ctx.lineWidth = pressed ? 2 : 1;
     ctx.strokeRect(x + 0.5, kbY + 0.5, whiteW - 2, KEYBOARD_HEIGHT - 1);
     wIdx++;
   });
 
-  // Black keys
   for (let m = FIRST_MIDI; m <= LAST_MIDI; m++) {
     if (isBlackKey(m)) {
       const x = midiToX(m);
@@ -867,11 +797,10 @@ function drawKeyboard() {
       const pressed = app.liveKeys.has(m);
       const glow = getKeyGlowLevel(m);
       const color = getKeyGlowColor(m, "#60a5fa");
-      // base black key
-      ctx.fillStyle = "#1f2937"; // gray-800
+
+      ctx.fillStyle = "#1f2937"; 
       ctx.fillRect(x, kbY, w, KEYBOARD_HEIGHT * 0.6);
 
-      // Add colored glow overlay (pressed or glowing)
       if (pressed || glow > 0.01) {
         const grad = ctx.createLinearGradient(x, kbY, x, kbY + KEYBOARD_HEIGHT * 0.6);
         grad.addColorStop(0, hexToRgba(color, 0.6 * glow + (pressed ? 0.4 : 0)));
@@ -880,16 +809,14 @@ function drawKeyboard() {
         ctx.fillRect(x, kbY, w, KEYBOARD_HEIGHT * 0.6);
       }
 
-      // red outline for visibility (stronger when pressed)
-      ctx.strokeStyle = pressed ? "rgba(239,68,68,0.95)" : "rgba(239,68,68,0.6)"; // red-500
+      ctx.strokeStyle = pressed ? "rgba(239,68,68,0.95)" : "rgba(239,68,68,0.6)"; 
       ctx.lineWidth = pressed ? 2 : 1;
       ctx.strokeRect(x + 0.5, kbY + 0.5, w - 1, KEYBOARD_HEIGHT * 0.6 - 1);
     }
   }
 
-  // Hit line (toggleable)
   if (!hitLineToggle || hitLineToggle.checked) {
-    ctx.strokeStyle = "#38bdf8"; // sky-400
+    ctx.strokeStyle = "#38bdf8"; 
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(0, hitLineY());
@@ -902,53 +829,47 @@ function drawKeyboard() {
 
 function drawNotes(currentTime) {
   if (!app.midi) return;
-  // Trails only applied when transport is running and time is advancing
+
   const timeAdvanced = lastTimeDrawn < 0 || Math.abs(currentTime - lastTimeDrawn) > 1e-3;
   if (trailToggle?.checked && Tone.Transport.state === "started" && timeAdvanced) {
-    ctx.fillStyle = "rgba(9, 12, 22, 0.25)"; // darker wash
+    ctx.fillStyle = "rgba(9, 12, 22, 0.25)"; 
     ctx.fillRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   } else {
     ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   }
-  // Background strip for fall zone for clarity
+
   if (enhancedToggle?.checked) {
     ctx.fillStyle = "rgba(2,6,14,0.5)";
     ctx.fillRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   }
 
-  // Optional beat grid
   if (gridToggle?.checked) {
     drawBeatGrid(currentTime);
   }
 
-  const drawAhead = NOTE_FALL_DURATION + 0.3; // show full fall window
+  const drawAhead = NOTE_FALL_DURATION + 0.3; 
 
-  // Determine solo/mute status
   const isSoloActive = app.tracks.some((t) => t.solo);
 
-  // For pulse animation on waiting group
   const nowMs = performance.now();
-  const pulse = 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(nowMs / 250)); // 0.5..1 scale-ish
+  const pulse = 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(nowMs / 250)); 
   const waitingRequired = app.practice.waiting ? new Set(app.practice.requiredSet) : null;
 
-  // Reset upcoming preview set
   app.upcomingKeys.clear();
 
-  // Precompute minor horizontal offsets per near-same-time notes
-  const overlapMap = new Map(); // key `${bucket}:${midi}` -> count index
+  const overlapMap = new Map(); 
 
   app.tracks.forEach((t) => {
     const enabled = isSoloActive ? t.solo : !t.muted;
     if (!enabled) return;
   const tNotes = t.notes.filter(n => handFilter(n));
-    // color is based on hand, not track
+
     tNotes.forEach((n) => {
       const start = n.time;
       const end = n.time + n.duration;
 
-      // Skip if already ended
       if (currentTime >= end) return;
-      // Skip if too far in the future
+
   if (start - currentTime > drawAhead) return;
 
   let x = midiToX(n.midi);
@@ -957,40 +878,38 @@ function drawNotes(currentTime) {
       const baseH = Math.max(6, n.duration * (HEIGHT - KEYBOARD_HEIGHT) / NOTE_FALL_DURATION);
       const r = getRadius();
       const targetY = hitLineY();
-      const startY = -40; // offscreen start
+      const startY = -40; 
 
       let y, h;
       if (currentTime < start) {
-        // Falling phase before note start
-        const dt = start - currentTime; // seconds until start
-        const tNorm = clamp(1 - dt / NOTE_FALL_DURATION, 0, 1); // 0..1 progress of fall
+
+        const dt = start - currentTime; 
+        const tNorm = clamp(1 - dt / NOTE_FALL_DURATION, 0, 1); 
         const eased = easeInOutCubic(tNorm);
         y = startY + (targetY - startY) * eased;
         h = baseH;
       } else {
-        // Sustain phase: shrink height as note plays, anchored on hit line
+
         const remaining = end - currentTime;
         const frac = clamp(remaining / n.duration, 0, 1);
         y = targetY;
         h = Math.max(0, baseH * frac);
-        if (h < 1.5) return; // effectively disappeared
+        if (h < 1.5) return; 
       }
 
-      // subtle anti-overlap jitter: spread notes sharing same start time bucket
-      const bucket = Math.round(start * 100) / 100; // 10ms bucket
+      const bucket = Math.round(start * 100) / 100; 
       const key = `${bucket}:${n.midi}`;
       const idx = overlapMap.get(key) || 0;
       overlapMap.set(key, idx + 1);
       x += (idx % 2 === 0 ? 1 : -1) * Math.min(2, idx);
 
-  // Track-based color when multiple tracks; fallback to pitch when single
   const col = colorForNoteObj(n);
-      // Pulse size if waiting for this note
-      const isWaitingNote = waitingRequired?.has(n.midi) && Math.abs(start - currentTime) < 2; // show pulse before it reaches
+
+      const isWaitingNote = waitingRequired?.has(n.midi) && Math.abs(start - currentTime) < 2; 
       if (isWaitingNote) {
         w = baseW * (0.95 + 0.06 * pulse);
       }
-      // Rounded glossy rectangle with vertical opacity gradient
+
       const baseOpacity = parseFloat(noteOpacity?.value || '0.95');
       const grad = ctx.createLinearGradient(x, y - h, x, y);
       grad.addColorStop(0, hexToRgba(col, Math.min(1, baseOpacity * 0.8)));
@@ -999,7 +918,6 @@ function drawNotes(currentTime) {
       roundRect(ctx, x, y - h, w, h, r);
       ctx.fill();
 
-      // Subtle drop shadow
   ctx.save();
   const glowFactor = parseFloat(glowIntensity?.value || '1');
   ctx.shadowColor = hexToRgba(col, 0.35 * (enhancedToggle?.checked ? glowFactor : 0.8));
@@ -1009,18 +927,17 @@ function drawNotes(currentTime) {
       ctx.fill();
       ctx.restore();
 
-      // If near start, add outline for guidance; if waiting, outline the expected note
       const nearStart = Math.abs(start - currentTime) < 0.06;
       const pressed = app.liveKeys.has(n.midi);
       const isWaitingTarget = app.practice.waiting && waitingRequired?.has(n.midi);
       if (nearStart || isWaitingTarget) {
-        // Outline; red if waiting and not pressed, green if pressed
+
         ctx.strokeStyle = pressed ? "#22c55e" : (isWaitingTarget ? "#ef4444" : "#f43f5e");
         ctx.lineWidth = 2;
         roundRect(ctx, x, y - h, w, h, r);
         ctx.stroke();
         if (isWaitingTarget) {
-          // Soft glow pulse
+
           ctx.save();
           ctx.shadowColor = hexToRgba('#ef4444', 0.7);
           ctx.shadowBlur = 12 * pulse * (enhancedToggle?.checked ? glowFactor : 1);
@@ -1030,12 +947,11 @@ function drawNotes(currentTime) {
         }
       }
 
-      // Pre-highlight keys within next 0.4s
       if (start - currentTime <= 0.4 && start - currentTime > 0) {
         app.upcomingKeys.add(n.midi);
         startKeyGlow(n.midi, true, col);
       }
-      // On landing, flash key once (debounced)
+
       if (Math.abs(start - currentTime) < 1/60) {
         const last = app._lastLandingFlash.get(n.midi) || 0;
         const now = performance.now();
@@ -1050,10 +966,10 @@ function drawNotes(currentTime) {
 
 function drawBeatGrid(currentTime) {
   const bpm = Tone.Transport.bpm.value || 120;
-  const spb = 60 / bpm; // seconds per beat
+  const spb = 60 / bpm; 
   const top = 0, bottom = HEIGHT - KEYBOARD_HEIGHT;
   ctx.save();
-  ctx.strokeStyle = 'rgba(148,163,184,0.2)'; // slate-400 @ 20%
+  ctx.strokeStyle = 'rgba(148,163,184,0.2)'; 
   ctx.lineWidth = 1;
   const windowStart = currentTime - 0.2;
   const windowEnd = currentTime + NOTE_FALL_DURATION + 0.5;
@@ -1074,7 +990,6 @@ function drawBeatGrid(currentTime) {
   ctx.restore();
 }
 
-// Landing flash effect on key: white -> hand color -> fade
 function keyLandingFlash(midi, col) {
   const now = performance.now();
   app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 60, color: '#ffffff' });
@@ -1084,9 +999,6 @@ function keyLandingFlash(midi, col) {
   }, 70);
 }
 
-// -------------------------------------------------------------
-// Animation loop
-// -------------------------------------------------------------
 let rafId = null;
 let animRunning = false;
 let lastTimeDrawn = -1;
@@ -1099,7 +1011,7 @@ function startAnimation() {
     const t = getPlaybackTime();
     drawNotes(t);
     drawKeyboard();
-    // Also advance UI timer/progress here to be robust
+
     updateTimeUI(t);
     lastTimeDrawn = t;
     rafId = requestAnimationFrame(loop);
@@ -1115,9 +1027,6 @@ function stopAnimation({ clear = false } = {}) {
   }
 }
 
-// -------------------------------------------------------------
-// Time/Progress UI
-// -------------------------------------------------------------
 function updateTimeUI(t) {
   const d = app.duration || 0;
   timeLabel.textContent = `${formatTime(t)} / ${formatTime(d)}`;
@@ -1125,7 +1034,7 @@ function updateTimeUI(t) {
   const clamped = Math.max(0, Math.min(100, pct));
   if (!isNaN(clamped)) setProgressPercent(clamped);
   if (d && t >= d) {
-    // Auto stop
+
     Tone.Transport.stop();
     stopAnimation({ clear: true });
     if (modeSelect.value === 'practice') showFeedback();
@@ -1135,17 +1044,12 @@ function updateTimeUI(t) {
 function setProgressPercent(pct) {
   try {
     progress.value = String(pct);
-    // Let CSS paint the left side using a CSS custom property
+
     progress.style.setProperty('--progress', `${pct}%`);
   } catch {}
 }
 
-// Staff helpers removed
-
-// -------------------------------------------------------------
-// Web MIDI I/O and scoring
-// -------------------------------------------------------------
-const BASE_TOLERANCE = 0.1; // ±100ms
+const BASE_TOLERANCE = 0.1; 
 
 async function initMIDI(forceRefresh = false) {
   if (!navigator.requestMIDIAccess) {
@@ -1170,7 +1074,7 @@ function populateMIDIDevices() {
   if (!access) return;
   app.midiIO.inputs = new Map(access.inputs);
   app.midiIO.outputs = new Map(access.outputs);
-  // Update selects
+
   if (midiInSelect) {
     midiInSelect.innerHTML = '';
     for (const [id, input] of app.midiIO.inputs) {
@@ -1179,14 +1083,14 @@ function populateMIDIDevices() {
       opt.textContent = input.name || id;
       midiInSelect.appendChild(opt);
     }
-    // Keep previous selection if still present
+
     if (app.midiIO.inId && app.midiIO.inputs.has(app.midiIO.inId)) {
       midiInSelect.value = app.midiIO.inId;
     } else if (midiInSelect.options.length) {
       midiInSelect.selectedIndex = 0;
       app.midiIO.inId = midiInSelect.value;
     }
-    // Bind input listener
+
     bindSelectedInput();
     midiInSelect.onchange = () => {
       app.midiIO.inId = midiInSelect.value;
@@ -1197,7 +1101,7 @@ function populateMIDIDevices() {
   if (midiOutSelect) {
     midiOutSelect.innerHTML = '';
     const DEFAULT_OUT_ID = 'default';
-    // Always include a default (WebAudio) option at the top
+
     const defOpt = document.createElement('option');
     defOpt.value = DEFAULT_OUT_ID;
     defOpt.textContent = 'Default (WebAudio)';
@@ -1211,7 +1115,7 @@ function populateMIDIDevices() {
     if (app.midiIO.outId && (app.midiIO.outId === DEFAULT_OUT_ID || app.midiIO.outputs.has(app.midiIO.outId))) {
       midiOutSelect.value = app.midiIO.outId;
     } else if (midiOutSelect.options.length) {
-      // Default to WebAudio (local) by default
+
       midiOutSelect.value = DEFAULT_OUT_ID;
       app.midiIO.outId = DEFAULT_OUT_ID;
     }
@@ -1220,14 +1124,14 @@ function populateMIDIDevices() {
       app.midiIO.outId = midiOutSelect.value;
       app.midiIO.output = (app.midiIO.outId && app.midiIO.outId !== DEFAULT_OUT_ID) ? (app.midiIO.outputs.get(app.midiIO.outId) || null) : null;
       savePref('midiOutId', app.midiIO.outId);
-      // Rebuild synths depending on whether local audio should be used
+
       try { app.synths.forEach(s => s.dispose?.()); } catch {}
       app.synths = [];
       buildTrackUI();
       rescheduleTransport();
     };
   }
-  // Status
+
   const inNames = [...app.midiIO.inputs.values()].map(i => i.name).join(', ');
   const outNames = [...app.midiIO.outputs.values()].map(o => o.name).join(', ');
   midiStatus.textContent = `MIDI In: ${inNames || '—'} | Out: ${outNames || '—'}`;
@@ -1235,7 +1139,7 @@ function populateMIDIDevices() {
 }
 
 function bindSelectedInput() {
-  // Remove listener from old input
+
   if (app.midiIO.input) {
     try { app.midiIO.input.onmidimessage = null; } catch {}
   }
@@ -1253,12 +1157,12 @@ function onMIDIMessage(e) {
   const now = Tone.Transport.seconds;
 
   if (cmd === 0x90 && velocity > 0) {
-    // note on
+
     app.liveKeys.add(note);
     startKeyGlow(note, true, colorForIncoming(note) );
     if (app.midiIO.thru) sendNoteOn(note, Math.round(velocity * 127));
     checkNoteHit(note, now);
-    // Practice wait: chord handling
+
     if (app.practice.waiting) {
       if (app.practice.requiredSet.has(note)) {
         app.practice.hitSet.add(note);
@@ -1271,12 +1175,12 @@ function onMIDIMessage(e) {
       }
     }
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
-    // note off
+
     app.liveKeys.delete(note);
     startKeyGlow(note, false, colorForIncoming(note));
     if (app.midiIO.thru) sendNoteOff(note);
   } else if (cmd === 0xB0) {
-    // Control change (e.g., sustain pedal CC64)
+
     const controller = data1 & 0x7f;
     const value = data2 & 0x7f;
     if (app.midiIO.thru) sendCC(controller, value);
@@ -1286,7 +1190,7 @@ function onMIDIMessage(e) {
 function checkNoteHit(midi, timeSec) {
   if (!app.midi) return false;
   const tolerance = modeSelect.value === "practice" ? BASE_TOLERANCE * 0.8 : BASE_TOLERANCE * 1.2;
-  // Find nearest bucket(s)
+
   const bucket = Math.round(timeSec * 10) / 10;
   const neighborBuckets = [bucket, Math.round((timeSec + 0.05) * 10) / 10, Math.round((timeSec - 0.05) * 10) / 10];
 
@@ -1301,34 +1205,31 @@ function checkNoteHit(midi, timeSec) {
         app.score += 1;
         scoreEl.textContent = String(app.score);
         flashKey(midi, true);
-        // correct hit feedback: quick green flash
+
         startKeyGlow(midi, true, '#22c55e');
         setTimeout(() => startKeyGlow(midi, false, '#22c55e'), 140);
         return true;
       }
     }
   }
-  // No match
+
   flashKey(midi, false);
-  // incorrect feedback: quick red flash
+
   startKeyGlow(midi, true, '#ef4444');
   setTimeout(() => startKeyGlow(midi, false, '#ef4444'), 200);
   return false;
 }
 
 function flashKey(midi, ok) {
-  // Temporary visual via overlay; keyboard also shows pressed state
+
   showOverlay(ok ? "Correct!" : "Oops", 400);
 }
 
-// Initialize prefs and MIDI on load
 applyPrefsToUI();
 initMIDI();
 
-// Initial draw
 drawKeyboard();
 
-// Auto-load previous MIDI on startup if present
 (function autoLoadPrevious() {
   try {
     const b64 = localStorage.getItem('lp_last_midi_b64');
@@ -1344,7 +1245,6 @@ drawKeyboard();
   } catch {}
 })();
 
-// ----------------------- Visual helpers -----------------------
 function roundRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w * 0.5, h * 0.5);
   ctx.beginPath();
@@ -1393,14 +1293,13 @@ function getRadius() {
   }
 }
 
-// Key glow manager (fade-in 100ms, hold while pressed, fade-out 300ms). Also bounce option.
 function startKeyGlow(midi, pressed, color) {
   const now = performance.now();
   const item = app.keyGlow.get(midi) || { state: 'idle', start: now, color };
   if (pressed) {
     app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 100, color });
   } else {
-    // keep last color during fade out
+
     app.keyGlow.set(midi, { state: 'fade-out', start: now, end: now + 300, color: item.color || color });
   }
 }
@@ -1430,14 +1329,12 @@ function getKeyGlowColor(midi, fallback = "#60a5fa") {
   return item?.color || handColorForMidi(midi) || fallback;
 }
 
-// UI wiring for visualization controls
 fallTime?.addEventListener('input', () => {
   NOTE_FALL_DURATION = parseFloat(fallTime.value);
   fallTimeLabel.textContent = `${NOTE_FALL_DURATION.toFixed(1)}s`;
   savePref('fallTime', NOTE_FALL_DURATION);
 });
 
-// ------------------------- Practice helpers -------------------------
 function setHand(hand) {
   app.practice.hand = hand;
   if (handLeftBtn && handRightBtn && handBothBtn) {
@@ -1468,8 +1365,6 @@ async function doCountdownIfNeeded() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Metronome indicator removed
-
 function initNoteWait() {
   const t = Tone.Transport.seconds;
   const all = app.tracks.flatMap((tr, ti) => tr.notes.map(n => ({...n, color: app.tracks[ti].color})));
@@ -1481,14 +1376,13 @@ function initNoteWait() {
   }
 }
 
-// Practice mode v2: grouped waits
 function buildPracticeGroups() {
   if (!app.midi) { app.practice.groups = []; return; }
   const all = app.tracks.flatMap((tr) => tr.notes);
   const filtered = all.filter(n => handFilter(n));
   const sorted = filtered.sort((a,b)=>a.time - b.time);
   const groups = [];
-  const tol = 0.05; // 50ms grouping tolerance
+  const tol = 0.05; 
   let current = null;
   for (const n of sorted) {
     if (!current || Math.abs(n.time - current.time) > tol) {
@@ -1508,9 +1402,9 @@ function maybePauseForGroup(index) {
   const g = app.practice.groups[index];
   if (!g) return;
   const t = Tone.Transport.seconds;
-  // Avoid pausing if we're already past this group
+
   if (t > g.time + 0.02) return;
-  // Set wait state if not already waiting for this index
+
   if (app.practice.waiting && app.practice.currentIndex === index) return;
   app.practice.waiting = true;
   app.practice.currentIndex = index;
@@ -1530,11 +1424,11 @@ function isCurrentChordSatisfied() {
 
 function resumeFromGroupWait(now) {
   app.practice.waiting = false;
-  // Mark stats for chord
+
   app.practice.stats.correct += app.practice.requiredSet.size;
   const delta = now - (app.practice.lastWaitTime ?? now);
   app.practice.stats.timings.push(delta);
-  // Resume transport; events at the group time will play (we paused just before)
+
   Tone.Transport.start();
 }
 
@@ -1557,9 +1451,6 @@ function showFeedback() {
   feedbackModal.classList.remove('hidden');
 }
 
-// Staff view removed
-
-// ------------------------- MIDI helpers -------------------------
 function sendNoteOn(midi, velocity = 100, channel = 0) {
   const out = app.midiIO.output;
   if (!out) return;
@@ -1580,9 +1471,9 @@ function sendCC(controller, value, channel = 0) {
 }
 
 function panicAll() {
-  // Send sustain off and all notes off on channels 1..16
+
   for (let ch = 0; ch < 16; ch++) {
-    sendCC(64, 0, ch); // sustain off
+    sendCC(64, 0, ch); 
     const out = app.midiIO.output;
     if (!out) continue;
     try { out.send([0xB0 | ch, 123, 0]); } catch {}
@@ -1590,15 +1481,14 @@ function panicAll() {
 }
 
 function handColorForMidi(midi) {
-  // Left = Blue (#60a5fa), Right = Orange (#fb923c)
+
   return midi < 60 ? '#60a5fa' : '#fb923c';
 }
 
-// Track-aware color: if multiple tracks exist, use track index palette mapping
 function colorForNoteObj(n) {
   const trackCount = app.tracks?.length || 0;
   if (trackCount > 1) {
-    // For two tracks, treat 0=left(blue), 1=right(orange). For >2, cycle palette.
+
     if (n.trackIndex === 0) return '#60a5fa';
     if (n.trackIndex === 1) return '#fb923c';
     return TRACK_COLORS[n.trackIndex % TRACK_COLORS.length] || '#a78bfa';
@@ -1606,7 +1496,6 @@ function colorForNoteObj(n) {
   return handColorForMidi(n.midi);
 }
 
-// For incoming user notes, infer likely track by finding nearest scheduled note at this pitch
 function colorForIncoming(midi) {
   const trackCount = app.tracks?.length || 0;
   if (trackCount <= 1) return handColorForMidi(midi);
@@ -1614,7 +1503,7 @@ function colorForIncoming(midi) {
   let best = null;
   for (let ti = 0; ti < app.tracks.length; ti++) {
     const notes = app.tracks[ti].notes;
-    // Find nearest note with same midi within small window
+
     let nearestDt = Infinity;
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
@@ -1624,7 +1513,7 @@ function colorForIncoming(midi) {
         nearestDt = dt;
         best = { trackIndex: ti };
       }
-      if (dt < 0.02) break; // good enough
+      if (dt < 0.02) break; 
     }
   }
   if (best) {
@@ -1632,17 +1521,13 @@ function colorForIncoming(midi) {
     if (best.trackIndex === 1) return '#fb923c';
     return TRACK_COLORS[best.trackIndex % TRACK_COLORS.length] || '#a78bfa';
   }
-  // Fallback
+
   return handColorForMidi(midi);
 }
 
-// Use local audio only when no MIDI output device is selected
 function shouldUseLocalAudio() {
-  // Only use local audio if the selected output is the default (WebAudio)
-  return !app.midiIO.output; // output is null when 'default' is selected
+
+  return !app.midiIO.output; 
 }
 
-// ------------------------- Time helpers -------------------------
-// Return raw transport seconds for UI/progress to match scheduled events exactly.
 function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
-

@@ -1,22 +1,17 @@
-/* tailwind.css - local overrides and small utilities */
-
-/* Make canvas crisp and fill its container */
 canvas#pianoRoll {
   display: block;
 }
 
-/* Range input better visibility on dark bg + custom track */
 input[type="range"] {
-  accent-color: #60a5fa; /* thumb/accent color */
+  accent-color: #60a5fa; 
   -webkit-appearance: none;
   appearance: none;
   background: transparent;
-  border: none; /* prevent default borders */
+  border: none; 
 }
 
-/* WebKit (Chrome, Edge (Chromium), Safari) */
 input[type="range"]::-webkit-slider-runnable-track {
-  background-color: #353E4D; /* unfilled track color */
+  background-color: #353E4D; 
   height: 4px;
   border-radius: 9999px;
 }
@@ -25,20 +20,19 @@ input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   width: 16px;
   height: 16px;
-  background-color: #60a5fa; /* thumb uses accent */
+  background-color: #60a5fa; 
   border-radius: 9999px;
   border: none;
-  margin-top: -6px; /* center thumb on 4px track */
+  margin-top: -6px; 
 }
 
-/* Firefox */
 input[type="range"]::-moz-range-track {
   background-color: #353E4D;
   height: 4px;
   border-radius: 9999px;
 }
 input[type="range"]::-moz-range-progress {
-  background-color: #60a5fa; /* left/filled part */
+  background-color: #60a5fa; 
   height: 4px;
   border-radius: 9999px;
 }
@@ -50,7 +44,6 @@ input[type="range"]::-moz-range-thumb {
   background-color: #60a5fa;
 }
 
-/* Legacy Edge/IE */
 input[type="range"]::-ms-track {
   background: transparent;
   color: transparent;
@@ -66,14 +59,12 @@ input[type="range"]::-ms-fill-upper {
   border-radius: 9999px;
 }
 
-/* Focus ring without thick default outline */
 input[type="range"]:focus {
   outline: none;
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
   border-radius: 6px;
 }
 
-/* Progress bar specific fill on WebKit using CSS var set via JS */
 input#progress::-webkit-slider-runnable-track {
   background: linear-gradient(to right,
     #60a5fa 0%,
@@ -83,7 +74,6 @@ input#progress::-webkit-slider-runnable-track {
   );
 }
 
-/* Material icon shim if system has font */
 .material-icons {
   font-family: 'Material Icons', sans-serif;
   font-weight: normal;
@@ -92,7 +82,6 @@ input#progress::-webkit-slider-runnable-track {
   line-height: 1;
 }
 
-/* Optional pulse animation for keys (can be used later) */
 @keyframes pulseKey {
   0% { filter: brightness(1); }
   35% { filter: brightness(1.15); }
@@ -102,9 +91,9 @@ input#progress::-webkit-slider-runnable-track {
 .key-pulse {
   animation: pulseKey 180ms ease-in-out;
 }
-/* Keep a visible focus without thick default outline */
+
 input[type="range"]:focus {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); /* subtle focus ring */
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); 
   border-radius: 6px;
 }
