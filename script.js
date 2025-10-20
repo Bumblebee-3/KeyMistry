@@ -65,7 +65,6 @@ const trailToggle = document.getElementById("trailToggle");
 const bounceToggle = document.getElementById("bounceToggle");
 const enhancedToggle = document.getElementById("enhancedToggle");
 const hitLineToggle = document.getElementById("hitLineToggle");
-const gridToggle = document.getElementById("gridToggle");
 const noteOpacity = document.getElementById("noteOpacity");
 const noteOpacityLabel = document.getElementById("noteOpacityLabel");
 const glowIntensity = document.getElementById("glowIntensity");
@@ -256,8 +255,6 @@ function applyPrefsToUI() {
   if (enh != null && enhancedToggle) enhancedToggle.checked = !!enh;
   const hitLine = loadPref('hitLine', null);
   if (hitLine != null && hitLineToggle) hitLineToggle.checked = !!hitLine; else if (hitLineToggle) hitLineToggle.checked = true;
-  const grid = loadPref('grid', null);
-  if (grid != null && gridToggle) gridToggle.checked = !!grid;
   const op = loadPref('noteOpacity', null);
   if (op != null && noteOpacity) {
     noteOpacity.value = String(op);
@@ -781,7 +778,6 @@ fsPlayPause?.addEventListener('click', async () => {
 });
 enhancedToggle?.addEventListener('change', () => savePref('enhanced', enhancedToggle.checked));
 hitLineToggle?.addEventListener('change', () => savePref('hitLine', hitLineToggle.checked));
-gridToggle?.addEventListener('change', () => savePref('grid', gridToggle.checked));
 noteOpacity?.addEventListener('input', () => { const v = parseFloat(noteOpacity.value || '0.95'); savePref('noteOpacity', v); if (noteOpacityLabel) noteOpacityLabel.textContent = `${Math.round(v*100)}%`; });
 glowIntensity?.addEventListener('input', () => { const v = parseFloat(glowIntensity.value || '1'); savePref('glowIntensity', v); if (glowIntensityLabel) glowIntensityLabel.textContent = `${v.toFixed(1)}x`; });
 visualLatencyInput?.addEventListener('input', () => {
@@ -917,9 +913,7 @@ function drawNotes(currentTime) {
     ctx.fillRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   }
 
-  if (gridToggle?.checked) {
-    drawBeatGrid(currentTime);
-  }
+  // Grid lines feature removed
 
   const FALL_DURATION = NOTE_FALL_DURATION; // seconds
   const SPAWN_EARLY = 0.03; // small pre-spawn window for stability
@@ -1037,31 +1031,7 @@ function drawNotes(currentTime) {
   });
 }
 
-function drawBeatGrid(currentTime) {
-  const bpm = Tone.Transport.bpm.value || 120;
-  const spb = 60 / bpm; 
-  const top = 0, bottom = HEIGHT - KEYBOARD_HEIGHT;
-  ctx.save();
-  ctx.strokeStyle = 'rgba(148,163,184,0.2)'; 
-  ctx.lineWidth = 1;
-  const windowStart = currentTime - 0.2;
-  const windowEnd = currentTime + NOTE_FALL_DURATION + 0.5;
-  const firstBeatIndex = Math.ceil(windowStart / spb);
-  for (let i = firstBeatIndex; i * spb <= windowEnd; i++) {
-    const beatTime = i * spb;
-    const dt = beatTime - currentTime;
-    const tNorm = clamp(1 - dt / NOTE_FALL_DURATION, 0, 1);
-    const eased = easeInOutCubic(tNorm);
-    const y = (-40) + (hitLineY() - (-40)) * eased;
-    if (y >= top && y <= bottom) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(WIDTH, y);
-      ctx.stroke();
-    }
-  }
-  ctx.restore();
-}
+// drawBeatGrid removed
 
 function keyLandingFlash(midi, col) {
   const now = performance.now();
