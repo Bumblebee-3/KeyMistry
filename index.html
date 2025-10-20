@@ -3,422 +3,198 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>LearnPiano - MIDI Practice</title>
-    <link rel="icon" type="image/x-icon" href="./assets/favicon.png">
+    <title>LearnPiano — Learn Smarter with Real‑Time MIDI</title>
+    <link rel="icon" type="image/png" href="./assets/favicon.png" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./tailwind.css" />
 
-    <!-- SEO: Basic -->
-    <meta name="description" content="LearnPiano is a browser-based MIDI practice tool with a piano roll, hands isolation, practice mode, and Web MIDI I/O. Upload a MIDI and start practicing right away.">
-    <meta name="keywords" content="piano, midi, practice, web midi, piano roll, learn piano, tone.js, music learning">
-    <meta name="robots" content="index, follow">
-    <meta name="author" content="Bumblebee-3">
-    <meta name="theme-color" content="#0b1220">
-    <link rel="canonical" href="https://bumblebee-3.github.io/LearnPiano/">
+    <!-- Meta -->
+    <meta name="description" content="LearnPiano is a modern, browser-based MIDI piano trainer with falling notes, key highlights, practice tools, and progress tracking." />
+    <meta name="author" content="Bumblebee-3" />
+    <meta name="theme-color" content="#0b1220" />
 
-    <!-- SEO: Open Graph -->
-    <meta property="og:type" content="website">
-    <meta property="og:site_name" content="LearnPiano">
-    <meta property="og:title" content="LearnPiano – MIDI Practice in Your Browser">
-    <meta property="og:description" content="Upload a MIDI file, visualize the notes, isolate hands, and practice with Web MIDI on desktop.">
-    <meta property="og:url" content="https://bumblebee-3.github.io/LearnPiano/">
-    <meta property="og:image" content="./assets/image.png">
-
-    <!-- SEO: Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="LearnPiano – MIDI Practice in Your Browser">
-    <meta name="twitter:description" content="Upload a MIDI file, visualize the notes, isolate hands, and practice with Web MIDI on desktop.">
-    <meta name="twitter:image" content="./assets/image.png">
-    <meta name="twitter:creator" content="@Bumblebee3">
-
-    <!-- SEO: Structured Data (JSON-LD) -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "LearnPiano - MIDI Practice",
-      "applicationCategory": "EducationalApplication",
-      "operatingSystem": "Web",
-      "description": "A browser-based MIDI practice tool with a piano roll, hands isolation, and practice mode using Web MIDI.",
-      "url": "https://bumblebee-3.github.io/LearnPiano/",
-      "author": {"@type": "Person", "name": "Bumblebee-3"},
-      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
-    }
-    </script>
-
-    <meta name="color-scheme" content="dark" />
+    <!-- Social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="LearnPiano — Real-Time MIDI Piano Trainer" />
+    <meta property="og:description" content="Connect your keyboard, upload a MIDI, and learn smarter with falling notes, note-wait, hand isolation, and more." />
+    <meta property="og:image" content="./assets/image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
 
     <style>
-      @keyframes lp-bounce {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-8px); }
-      }
+      html { scroll-behavior: smooth; }
+      .shine { background: linear-gradient(100deg, rgba(59,130,246,0.15), rgba(56,189,248,0.12), rgba(16,185,129,0.12)); }
+      .hero-blur { filter: blur(60px); opacity: .5; }
+      @keyframes floaty { 0%,100%{ transform:translateY(0) } 50%{ transform:translateY(-8px) } }
+      @keyframes fallNote { 0%{ transform:translateY(-40px); opacity:.0 } 100%{ transform:translateY(0); opacity:1 } }
     </style>
   </head>
-  <body class="bg-gray-900 text-gray-100 min-h-screen">
-    <!-- Loading Overlay -->
-    <div id="loadingOverlay" class="fixed inset-0 bg-gray-900/80 flex items-center justify-center transition-opacity duration-500" style="z-index: 60;">
-      <div class="text-center space-y-4">
-        <!-- Animated piano keys -->
-        <div class="flex items-end gap-1 justify-center">
-          <div class="w-4 h-10 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: 0s;"></div>
-          <div class="w-4 h-14 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .08s;"></div>
-          <div class="w-4 h-12 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .16s;"></div>
-          <div class="w-4 h-16 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .24s;"></div>
-          <div class="w-4 h-12 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .32s;"></div>
+  <body class="bg-gray-950 text-gray-100 antialiased">
+    <!-- Nav -->
+    <header class="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-gray-900/70 bg-gray-900/80 border-b border-white/10">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <img src="./assets/favicon.png" alt="LearnPiano" class="w-6 h-6 rounded" />
+          <span class="font-semibold tracking-tight">LearnPiano</span>
         </div>
-        <div id="loadingHeadline" class="text-lg font-medium">Loading your practice setup…</div>
-        <div id="loadingStatus" class="text-sm opacity-80">Initializing…</div>
-        <div class="text-xs opacity-60">LearnPiano</div>
+        <nav class="hidden md:flex items-center gap-6 text-sm opacity-90">
+          <a href="#how" class="hover:text-white/90 transition">How it works</a>
+          <a href="#features" class="hover:text-white/90 transition">Features</a>
+          <a href="#gallery" class="hover:text-white/90 transition">Screenshots</a>
+        </nav>
+        <div class="flex items-center gap-2">
+          <a href="./app.html" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow shadow-blue-600/20">Open App</a>
+        </div>
       </div>
-    </div>
-    <div class="max-w-7xl mx-auto px-4 py-6">
-      
-      <header class="flex items-center justify-between mb-4">
-        <h1 class="text-2xl font-bold tracking-tight">LearnPiano</h1>
-        <div class="text-sm opacity-80">Static MIDI Trainer</div>
-      </header>
+    </header>
 
-      
-      <section class="bg-gray-800/70 border border-gray-700 rounded-2xl shadow-lg p-4 mb-4">
-        <div class="flex flex-col gap-4">
-          <div class="flex flex-wrap items-center gap-3">
-            
-            <label class="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition">
-              <input id="fileInput" type="file" accept=".mid,.midi" class="hidden" />
-              <span class="material-icons">file_upload</span>
-              <span>Upload MIDI</span>
-            </label>
-            <button id="btnLoadPrevious" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition">Load Previous</button>
-
-            
-            <button id="btnPlay" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl transition shadow" aria-label="Play" title="Play">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                <path d="M8 5v14l11-7-11-7z" />
-              </svg>
-            </button>
-            <button id="btnPause" class="px-3 py-2 bg-amber-600 hover:bg-amber-500 rounded-xl transition" aria-label="Pause" title="Pause">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
-              </svg>
-            </button>
-            <button id="btnStop" class="px-3 py-2 bg-rose-600 hover:bg-rose-500 rounded-xl transition" aria-label="Stop" title="Stop">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                <path d="M6 6h12v12H6z" />
-              </svg>
-            </button>
-            <button id="btnRestart" class="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-xl transition" aria-label="Restart" title="Restart">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                <path d="M12 5V2L7 7l5 5V9a5 5 0 1 1-4.58 2.86 1 1 0 1 0-1.8.86A7 7 0 1 0 12 5z" />
-              </svg>
-            </button>
-
-            
-            <button id="openMIDISettings" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl transition" aria-label="MIDI Settings" title="MIDI Settings">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
-                <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.07 7.07 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 1h-3.8a.5.5 0 0 0-.49.41l-.36 2.54c-.58.22-1.13.52-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 7.47a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 13.15a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.42.34.68.22l2.39-.96c.5.42 1.05.72 1.63.94l.36 2.54c.05.24.25.41.49.41h3.8c.24 0 .45-.17.49-.41l.36-2.54c.58-.22 1.13-.52 1.63-.94l2.39.96c.26.12.54.02.68-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z"/>
-              </svg>
-            </button>
-
-            
-
-            
-            <div class="flex items-center gap-2 ml-auto">
-              <label class="text-sm opacity-90">Mode:</label>
-              <select id="modeSelect" class="px-2 py-1 bg-gray-700 rounded-lg border border-gray-600">
-                <option value="listen">Listen</option>
-                <option value="practice">Practice</option>
-              </select>
-              <label class="inline-flex items-center gap-2 text-sm ml-2">
-                <input id="noteWaitToggle" type="checkbox" class="accent-blue-500" />
-                Note-wait
-              </label>
-              
-              <label class="inline-flex items-center gap-2 text-sm ml-2 select-none">
-                <span>Practice</span>
-                <input id="practiceToggle" type="checkbox" class="accent-emerald-500" />
-              </label>
-            </div>
+    <!-- Hero -->
+    <section class="relative overflow-hidden">
+      <div class="absolute inset-0 -z-10">
+        <div class="absolute -top-24 -left-24 w-80 h-80 rounded-full hero-blur" style="background: radial-gradient(closest-side, rgba(59,130,246,.25), transparent)"></div>
+        <div class="absolute -bottom-24 -right-24 w-96 h-96 rounded-full hero-blur" style="background: radial-gradient(closest-side, rgba(234,179,8,.2), transparent)"></div>
+      </div>
+      <div class="max-w-7xl mx-auto px-4 py-16 md:py-24 grid md:grid-cols-2 gap-10 items-center">
+        <div>
+          <h1 class="text-4xl md:text-5xl font-extrabold leading-tight tracking-tight">
+            Learn Piano Smarter with
+            <span class="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 via-teal-300 to-emerald-300">Real‑Time MIDI Visualization</span>
+          </h1>
+          <p class="mt-4 text-white/80 text-lg">Connect your keyboard, follow falling notes, and get instant feedback. Practice with note‑wait, hand isolation, tempo & loop control, and progress tracking - right in your browser.</p>
+          <div class="mt-6 flex flex-wrap items-center gap-3">
+            <a href="./app.html" class="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Start Practicing</a>
+            <a href="#how" class="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/15 transition">How it works</a>
           </div>
-
-          
-          <div class="flex items-center gap-3">
-            <input id="progress" type="range" min="0" max="100" value="0" step="0.1" class="w-full" />
-            <div id="timeLabel" class="text-sm tabular-nums min-w-[140px] text-right">00:00 / 00:00</div>
-          </div>
-
-          
-          <div class="flex flex-wrap items-center gap-4">
-            <div class="flex items-center gap-2 text-sm">
-              <label for="speed" class="opacity-90">Tempo</label>
-              <input id="speed" type="range" min="0.5" max="1.5" value="1" step="0.05" />
-              <span id="speedLabel" class="w-20 text-right">100%</span>
-            </div>
-
-            <div class="text-sm opacity-80">Score: <span id="score">0</span></div>
-            <div id="midiStatus" class="text-xs opacity-70 hidden"></div>
-            
-          </div>
-
-          
-          <div class="flex items-center gap-2 pt-2 border-t border-gray-700">
-            <div class="flex flex-wrap items-center gap-4 pt-2">
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="loopToggle" type="checkbox" class="accent-blue-500" />
-              Loop
-            </label>
-            <div class="flex items-center gap-2 text-sm">
-              <label for="loopStart" class="opacity-90">Start (s)</label>
-              <input id="loopStart" type="number" step="0.1" min="0" value="0" class="w-20 bg-gray-800 rounded-md border border-gray-700 px-2 py-1" />
-              <label for="loopEnd" class="opacity-90">End (s)</label>
-              <input id="loopEnd" type="number" step="0.1" min="0" value="0" class="w-20 bg-gray-800 rounded-md border border-gray-700 px-2 py-1" />
-            </div>
-          </div>
-            <div class="flex items-center gap-2 text-sm ml-auto mt-4">
-              <span class="opacity-80">Hands:</span>
-              <div class="inline-flex rounded-lg overflow-hidden border border-gray-600">
-                <button id="handLeft" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Left</button>
-                <button id="handBoth" class="px-2 py-1 bg-blue-600">Both</button>
-                <button id="handRight" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Right</button>
+          <div class="mt-6 text-xs text-white/60">No install • Works with Web MIDI on desktop</div>
+        </div>
+        <div class="relative">
+          <div class="relative rounded-3xl border border-white/10 bg-gray-900/60 p-2 backdrop-blur">
+            <img src="./assets/image.png" alt="App screenshot" class="rounded-2xl w-full h-auto" />
+            <!-- Bluish overlay on top of image -->
+            <div class="absolute inset-0 rounded-2xl bg-blue-950/40"></div>
+            <!-- Centered favicon overlay badge -->
+            <div class="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+              <div class="p-2 rounded-2xl bg-gray-900/70 backdrop-blur ring-1 ring-white/15 shadow-xl shadow-blue-600/30 pointer-events-auto">
+                <img src="./assets/favicon.png" alt="LearnPiano icon" class="w-24 h-24 rounded-xl" />
               </div>
             </div>
+            <div class="absolute inset-x-6 -bottom-3 h-6 shine rounded-xl blur-[2px]"></div>
           </div>
-
-        </div>
-      </section>
-
-      
-
-      
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        
-        <aside class="lg:col-span-3 bg-gray-800/70 border border-gray-700 rounded-2xl p-4 h-[60vh] overflow-auto">
-          <h2 class="text-sm font-semibold uppercase tracking-wider opacity-80 mb-3">Tracks</h2>
-          <div id="tracksPanel" class="flex flex-col gap-2"></div>
-        </aside>
-
-        
-        <section class="lg:col-span-9 bg-gray-800/70 border border-gray-700 rounded-2xl p-2">
-          <div class="relative w-full h-[60vh] rounded-xl overflow-hidden bg-gray-900">
-            <canvas id="pianoRoll" class="block w-full h-full"></canvas>
-            
-            <button id="btnPianoMode" class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-emerald-600/90 hover:bg-emerald-500 rounded-md shadow" aria-label="Piano Mode" title="Piano Mode">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
-                <path d="M3 9V3h6" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M21 15v6h-6" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M3 15v6h6" stroke-linecap="round" stroke-linejoin="round" />
-                <path d="M21 9V3h-6" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-            </button>
-            <div id="overlayMsg" class="absolute inset-x-0 top-4 mx-auto w-fit bg-gray-800/70 border border-gray-700 px-3 py-1 rounded-full text-xs hidden"></div>
-            <div id="countdown" class="absolute inset-x-0 top-1/3 mx-auto text-6xl font-bold text-white/90 drop-shadow-lg hidden"></div>
-          </div>
-        </section>
-      </div>
-
-      
-      <footer class="mt-6 text-xs opacity-70">
-        <div class="flex items-center justify-center gap-1">
-          <span>Made by</span>
-          <a href="https://github.com/Bumblebee-3" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">Bumblebee-3</a>
-        </div>
-      </footer>
-    </div>
-
-    
-    <div id="feedbackModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
-      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-[90%] p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-lg font-semibold">Practice Summary</h3>
-          <button id="feedbackClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
-            <div class="text-sm opacity-80 mb-2">Accuracy</div>
-            <div class="text-3xl font-bold"><span id="accPercent">0</span>%</div>
-            <div class="text-xs opacity-70">Correct notes: <span id="accCorrect">0</span> / <span id="accTotal">0</span></div>
-          </div>
-          <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
-            <div class="text-sm opacity-80 mb-2">Timing</div>
-            <canvas id="timingChart" class="w-full h-24"></canvas>
-          </div>
-          <div class="md:col-span-2 bg-gray-900/60 rounded-xl p-3 border border-gray-700">
-            <div class="text-sm opacity-80 mb-2">Missed Notes</div>
-            <ul id="missList" class="list-disc list-inside text-xs space-y-1 max-h-40 overflow-auto"></ul>
+          <!-- Falling note accents -->
+          <div class="absolute -right-4 -top-6 flex gap-1 opacity-70">
+            <span class="w-2 h-10 bg-blue-400/70 rounded animate-[fallNote_2s_ease-in-out_infinite]"></span>
+            <span class="w-2 h-14 bg-emerald-400/70 rounded animate-[fallNote_2.4s_ease-in-out_infinite_.2s]"></span>
+            <span class="w-2 h-8 bg-orange-400/70 rounded animate-[fallNote_1.8s_ease-in-out_infinite_.4s]"></span>
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    
-    <div id="pianoFs" class="fixed inset-0 bg-gray-900 hidden z-50">
-      <div class="absolute inset-0 flex flex-col">
-        <div class="flex items-center justify-between p-3">
-          <button id="fsExit" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl">Exit</button>
-          <button id="fsPlayPause" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl flex items-center gap-2">
-            <span id="fsPlayPauseIcon">Play</span>
-          </button>
-        </div>
-        <div id="pianoFsCanvasWrap" class="flex-1 relative">
-          
-        </div>
-      </div>
-    </div>
-
-    
-    <div id="midiModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
-      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <span id="midiConnDot" class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            <h3 class="text-lg font-semibold">Settings</h3>
+    <!-- How it works -->
+    <section id="how" class="py-16 md:py-20 border-t border-white/10 bg-gray-900/50">
+      <div class="max-w-7xl mx-auto px-4">
+        <h2 class="text-2xl md:text-3xl font-bold">How it works</h2>
+        <p class="text-white/70 mt-2">Four simple steps to your first song.</p>
+        <div class="grid md:grid-cols-4 gap-4 mt-8">
+          <div class="rounded-2xl bg-gray-900/70 border border-white/10 p-4 hover:translate-y-[-2px] transition">
+            <div class="w-10 h-10 rounded-lg bg-blue-500/20 grid place-items-center">🎹</div>
+            <h3 class="mt-3 font-semibold">Connect your MIDI keyboard</h3>
+            <p class="text-sm text-white/70 mt-1">Use any USB‑MIDI or Bluetooth‑MIDI device (desktop browsers).</p>
           </div>
-          <button id="midiClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
-        </div>
-        
-        <div class="flex border-b border-gray-700 mb-3 text-sm">
-          <button id="settingsTabMidi" class="px-4 py-2 -mb-px border-b-2 border-blue-500 text-blue-400">MIDI</button>
-          <button id="settingsTabVisuals" class="px-4 py-2 -mb-px border-b-2 border-transparent hover:text-gray-300">Visuals</button>
-        </div>
-        
-        <div id="settingsTabsContent" class="h-80 overflow-y-auto">
-          
-          <div id="midiSettingsTab" class="space-y-3">
-            <div>
-              <label class="block text-sm opacity-80 mb-1">MIDI Input</label>
-              <select id="midiInSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
-            </div>
-            <div>
-              <label class="block text-sm opacity-80 mb-1">MIDI Output</label>
-              <select id="midiOutSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <label class="text-sm opacity-80">Sustain Tail</label>
-              <div class="flex items-center gap-2">
-                <input id="tailMsInput" type="range" min="0" max="150" step="10" value="60" />
-                <span id="tailMsLabel" class="text-sm w-12 text-right">60ms</span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <label class="inline-flex items-center gap-2 text-sm select-none">
-                <input id="midiThruToggle" type="checkbox" class="accent-blue-500" />
-                MIDI Thru (echo input to output)
-              </label>
-              <div class="flex items-center gap-2">
-                <button id="refreshMIDI" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">Refresh</button>
-                <button id="testNoteBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Test Note</button>
-              </div>
-            </div>
-            <p class="text-xs opacity-70">Tip: If you cannot find your device over, it may be switched off, or your computer may not have the necessary drivers installed.</p>
+          <div class="rounded-2xl bg-gray-900/70 border border-white/10 p-4 hover:translate-y-[-2px] transition">
+            <div class="w-10 h-10 rounded-lg bg-emerald-500/20 grid place-items-center">📁</div>
+            <h3 class="mt-3 font-semibold">Choose or upload a song</h3>
+            <p class="text-sm text-white/70 mt-1">Load any .mid file. Your last song auto‑loads next time.</p>
           </div>
-          
-          <div id="visualSettingsTab" class="space-y-3 hidden">
-            <div class="flex items-center justify-between gap-2">
-              <label for="radiusSelect" class="text-sm opacity-80">Note radius</label>
-              <select id="radiusSelect" class="px-2 py-1 bg-gray-900 rounded-lg border border-gray-700">
-                <option value="square">Square</option>
-                <option value="soft" selected>Soft</option>
-                <option value="pill">Pill</option>
-              </select>
-            </div>
-            <div class="flex items-center justify-between gap-2">
-              <label for="fallTime" class="text-sm opacity-80">Fall time</label>
-              <div class="flex items-center gap-2">
-                <input id="fallTime" type="range" min="1" max="6" value="4" step="0.5" />
-                <span id="fallTimeLabel" class="text-sm w-14 text-right">4.0s</span>
-              </div>
-            </div>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="enhancedToggle" type="checkbox" class="accent-blue-500" />
-              Enhanced visuals
-            </label>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="hitLineToggle" type="checkbox" class="accent-blue-500" checked />
-              Hit line
-            </label>
-            <label class="inline-flex items-center gap-2 text-sm hidden">
-              <input id="gridToggle" type="checkbox" class="accent-blue-500 hidden" checked/>
-              Beat grid
-            </label>
-            <div class="flex items-center justify-between gap-2">
-              <label for="glowIntensity" class="text-sm opacity-80">Glow</label>
-              <div class="flex items-center gap-2">
-                <input id="glowIntensity" type="range" min="0" max="2" value="1" step="0.1" />
-                <span id="glowIntensityLabel" class="text-sm w-14 text-right">1.0x</span>
-              </div>
-            </div>
-            <div class="flex items-center justify-between gap-2 hidden">
-              <label for="noteOpacity" class="text-sm opacity-80">Note opacity</label>
-              <div class="flex items-center gap-2">
-                <input id="noteOpacity" type="range" min="0.5" max="1" value="0.95" step="0.05" />
-                <span id="noteOpacityLabel" class="text-sm w-14 text-right">95%</span>
-              </div>
-            </div>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="trailToggle" type="checkbox" class="accent-blue-500" checked />
-              Trails
-            </label>
-            <label class="inline-flex items-center gap-2 text-sm">
-              <input id="bounceToggle" type="checkbox" class="accent-blue-500" checked />
-              Bounce
-            </label>
+          <div class="rounded-2xl bg-gray-900/70 border border-white/10 p-4 hover:translate-y-[-2px] transition">
+            <div class="w-10 h-10 rounded-lg bg-orange-500/20 grid place-items-center">🎼</div>
+            <h3 class="mt-3 font-semibold">Follow falling notes</h3>
+            <p class="text-sm text-white/70 mt-1">Keys highlight as you play for instant feedback.</p>
+          </div>
+          <div class="rounded-2xl bg-gray-900/70 border border-white/10 p-4 hover:translate-y-[-2px] transition">
+            <div class="w-10 h-10 rounded-lg bg-teal-500/20 grid place-items-center">📈</div>
+            <h3 class="mt-3 font-semibold">Track your progress</h3>
+            <p class="text-sm text-white/70 mt-1">See accuracy, timing, and missed notes after each run.</p>
           </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <!-- Mobile device block overlay -->
-    <div id="mobileBlock" class="fixed inset-0 z-50 hidden bg-gray-900 text-gray-100 overscroll-none" style="touch-action: none;">
-      <div class="w-full h-full flex items-center justify-center p-6">
-        <div class="max-w-lg text-center space-y-4">
-          <!-- Clean no-mobile icon -->
-          <div class="flex justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" class="w-24 h-24" aria-hidden="true">
-              <!-- Phone silhouette -->
-              <g fill="#94a3b8" opacity="0.35">
-                <rect x="24" y="14" width="16" height="36" rx="3" ry="3" />
-                <circle cx="32" cy="46" r="2" />
-              </g>
-              <!-- Prohibition ring and slash -->
-              <circle cx="32" cy="32" r="22" fill="none" stroke="#f43f5e" stroke-width="5" />
-              <path d="M18 46 L46 18" stroke="#f43f5e" stroke-width="5" stroke-linecap="round" />
-            </svg>
+    <!-- Features -->
+    <section id="features" class="py-16 md:py-20">
+      <div class="max-w-7xl mx-auto px-4">
+        <h2 class="text-2xl md:text-3xl font-bold">Practice features that accelerate learning</h2>
+        <div class="grid md:grid-cols-3 gap-4 mt-8">
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-blue-300">⏸️</div>
+            <h3 class="mt-2 font-semibold">Note‑Wait Mode</h3>
+            <p class="text-sm text-white/70">Playback pauses before the next notes until you play them.</p>
           </div>
-          <h2 class="text-2xl font-semibold">Not supported on mobile</h2>
-          <p class="opacity-80 text-sm">This app requires Web MIDI, which is not reliably available on mobile browsers. Please use a desktop browser (Chrome, Edge, or similar) over HTTPS.</p>
-          <p class="opacity-70 text-xs">Tip: If you're on a tablet/phone, try again from a desktop for full MIDI input/output support.</p>
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-orange-300">👐</div>
+            <h3 class="mt-2 font-semibold">Hand Isolation</h3>
+            <p class="text-sm text-white/70">Practice left, right, or both hands with personalized parts.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-teal-300">🎚️</div>
+            <h3 class="mt-2 font-semibold">Tempo & Loop Control</h3>
+            <p class="text-sm text-white/70">Slow down, loop tricky sections, and build muscle memory.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-blue-300">🔌</div>
+            <h3 class="mt-2 font-semibold">MIDI In/Out</h3>
+            <p class="text-sm text-white/70">Use any MIDI keyboard and optionally send notes to external gear.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-emerald-300">📊</div>
+            <h3 class="mt-2 font-semibold">Progress Feedback</h3>
+            <p class="text-sm text-white/70">See accuracy and timing to focus your practice.</p>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-gray-900/60 p-5">
+            <div class="text-orange-300">🎹</div>
+            <h3 class="mt-2 font-semibold">Enhanced Visuals</h3>
+            <p class="text-sm text-white/70">Clean piano roll with glowing keys and crisp hit line.</p>
+          </div>
         </div>
       </div>
-    </div>
+    </section>
 
-    <script>
-      (function(){
-        try {
-          var ua = navigator.userAgent || '';
-          var isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Windows Phone|Opera Mini|Mobi|Mobile/i.test(ua);
-          var isCoarse = window.matchMedia && window.matchMedia('(pointer:coarse)').matches;
-          if (isMobileUA || isCoarse) {
-            var el = document.getElementById('mobileBlock');
-            if (el) el.classList.remove('hidden');
-            var lo = document.getElementById('loadingOverlay');
-            if (lo) lo.classList.add('hidden');
-            document.documentElement.style.overflow = 'hidden';
-            document.body && (document.body.style.overflow = 'hidden');
-            document.documentElement.classList.add('mobile-blocked');
-            document.body && document.body.classList.add('mobile-blocked');
-            window.__LP_BLOCKED = true;
-          }
-        } catch(e) { /* no-op */ }
-      })();
-    </script>
-    <script>
-      // Load main module only when not blocked (prevents canvas sizing, audio, and overflow on mobile)
-      if (!window.__LP_BLOCKED) {
-        var s = document.createElement('script');
-        s.type = 'module';
-        s.src = './script.js';
-        document.body.appendChild(s);
-      }
-    </script>
+    <!-- Gallery -->
+    <section id="gallery" class="py-16 md:py-20 border-t border-white/10 bg-gray-900/50">
+      <div class="max-w-7xl mx-auto px-4">
+        <h2 class="text-2xl md:text-3xl font-bold">Screenshots</h2>
+        <div class="grid md:grid-cols-3 gap-4 mt-8">
+          <img src="./assets/image.png" alt="Main interface" class="rounded-2xl border border-white/10" />
+          <img src="./assets/fullscreen.png" alt="Fullscreen piano mode" class="rounded-2xl border border-white/10" />
+          <img src="./assets/settings.png" alt="Settings panel" class="rounded-2xl border border-white/10" />
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-16 md:py-20">
+      <div class="max-w-5xl mx-auto px-4 text-center">
+        <h2 class="text-3xl md:text-4xl font-extrabold">Ready to Play Your First Song?</h2>
+        <p class="text-white/70 mt-3">Open the app, load a MIDI, and start learning with real‑time visual guidance.</p>
+        <div class="mt-6">
+          <a href="./app.html" class="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Open App</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-8 border-t border-white/10">
+      <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+        <div class="flex items-center gap-2 text-white/70">
+          <img src="./assets/favicon.png" class="w-4 h-4" alt="LP"/>
+          <span>LearnPiano</span>
+        </div>
+        <div class="flex items-center gap-4 text-white/70">
+          <a class="hover:text-white" href="https://github.com/Bumblebee-3/LearnPiano" target="_blank" rel="noopener">GitHub</a>
+          <a class="hover:text-white" href="#">Contact</a>
+          <a class="hover:text-white" href="#">Privacy</a>
+        </div>
+        <div class="text-white/60">Made with ❤️ by <a class="underline hover:text-white" href="https://github.com/Bumblebee-3" target="_blank" rel="noopener">Bumblebee-3</a></div>
+      </div>
+    </footer>
   </body>
-</html>
+  </html>
