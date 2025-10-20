@@ -145,6 +145,10 @@ const app = {
     output: null,
     thru: false,
     tailMs: 60,
+  },
+  pedal: {
+    sustainDown: new Map(), // channel -> boolean
+    sustained: new Map(),   // channel -> Set<midi>
   }
 };
 app._originalBpm = 120; 
@@ -503,14 +507,11 @@ function scheduleIfNeeded() {
       }, time);
 
       Tone.Transport.schedule(() => {
-        app.liveKeys.add(n.midi);
-        startKeyGlow(n.midi, true, colorForNoteObj(n));
+        handleNoteOnVisual(n.midi, t.channel, colorForNoteObj(n));
       }, time);
 
       Tone.Transport.schedule(() => {
-        app.liveKeys.delete(n.midi);
-        startKeyGlow(n.midi, false, colorForNoteObj(n));
-
+        handleNoteOffVisual(n.midi, t.channel, colorForNoteObj(n));
         const offDelay = app.midiIO.tailMs / 1000;
         setTimeout(() => sendNoteOff(n.midi, t.channel), Math.max(0, offDelay * 1000));
       }, time + n.duration);
@@ -528,6 +529,8 @@ function scheduleIfNeeded() {
       cc64Arr.forEach(cc => {
         const val = Math.round((cc.value ?? 0) * 127);
         Tone.Transport.schedule(() => {
+          // Update local sustain state and forward CC if applicable
+          updateSustainState(channel, val >= 64, getPlaybackTime());
           sendCC(64, val, channel);
         }, (cc.time ?? 0) + now);
       });
@@ -1233,14 +1236,14 @@ function bindSelectedInput() {
 function onMIDIMessage(e) {
   const [status, data1, data2] = e.data;
   const cmd = status & 0xf0;
+  const ch = status & 0x0f;
   const note = data1;
   const velocity = data2 / 127;
   const now = Tone.Transport.seconds;
 
   if (cmd === 0x90 && velocity > 0) {
-
-    app.liveKeys.add(note);
-    startKeyGlow(note, true, colorForIncoming(note) );
+    console.debug && console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
+    handleNoteOnVisual(note, ch, colorForIncoming(note));
     if (app.midiIO.thru) sendNoteOn(note, Math.round(velocity * 127));
     checkNoteHit(note, now);
 
@@ -1256,15 +1259,58 @@ function onMIDIMessage(e) {
       }
     }
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
-
-    app.liveKeys.delete(note);
-    startKeyGlow(note, false, colorForIncoming(note));
+    console.debug && console.debug(`[LP] Note ${note} OFF ch${ch} at ${now.toFixed(3)}`);
+    handleNoteOffVisual(note, ch, colorForIncoming(note));
     if (app.midiIO.thru) sendNoteOff(note);
   } else if (cmd === 0xB0) {
 
     const controller = data1 & 0x7f;
     const value = data2 & 0x7f;
+    if (controller === 64) {
+      updateSustainState(ch, value >= 64, now);
+    }
     if (app.midiIO.thru) sendCC(controller, value);
+  }
+}
+
+function updateSustainState(channel, isDown, now) {
+  const wasDown = !!app.pedal.sustainDown.get(channel);
+  app.pedal.sustainDown.set(channel, isDown);
+  if (!isDown && wasDown) {
+    // Pedal released: flush sustained notes
+    const set = app.pedal.sustained.get(channel);
+    if (set && set.size) {
+      for (const midi of [...set]) {
+        app.liveKeys.delete(midi);
+        startKeyGlow(midi, false, getKeyGlowColor(midi));
+        set.delete(midi);
+      }
+    }
+  }
+}
+
+function ensureSustainSet(channel) {
+  if (!app.pedal.sustained.has(channel)) app.pedal.sustained.set(channel, new Set());
+  return app.pedal.sustained.get(channel);
+}
+
+function handleNoteOnVisual(midi, channel, color) {
+  app.liveKeys.add(midi);
+  startKeyGlow(midi, true, color);
+  // Track for potential sustain
+  ensureSustainSet(channel);
+}
+
+function handleNoteOffVisual(midi, channel, color) {
+  const sustain = !!app.pedal.sustainDown.get(channel);
+  const set = ensureSustainSet(channel);
+  if (sustain) {
+    // Defer release until pedal is lifted
+    set.add(midi);
+  } else {
+    app.liveKeys.delete(midi);
+    startKeyGlow(midi, false, color);
+    set.delete(midi);
   }
 }
 
@@ -1440,8 +1486,8 @@ function startKeyGlow(midi, pressed, color) {
   if (pressed) {
     app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 100, color });
   } else {
-
-    app.keyGlow.set(midi, { state: 'fade-out', start: now, end: now + 300, color: item.color || color });
+    // Faster fade-out for snappier release (~200ms)
+    app.keyGlow.set(midi, { state: 'fade-out', start: now, end: now + 200, color: item.color || color });
   }
 }
 
