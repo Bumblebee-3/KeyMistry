@@ -4,7 +4,7 @@ import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
 if (window.__LP_BLOCKED) {
   // Export an empty module to satisfy type=module
 }
-
+savePref('grid', false)
 const fileInput = document.getElementById("fileInput");
 const loadingOverlay = document.getElementById('loadingOverlay');
 const loadingHeadline = document.getElementById('loadingHeadline');
