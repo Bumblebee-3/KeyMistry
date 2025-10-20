@@ -47,8 +47,31 @@
     </script>
 
     <meta name="color-scheme" content="dark" />
+
+    <style>
+      @keyframes lp-bounce {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-8px); }
+      }
+    </style>
   </head>
   <body class="bg-gray-900 text-gray-100 min-h-screen">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-gray-900/80 flex items-center justify-center transition-opacity duration-500" style="z-index: 60;">
+      <div class="text-center space-y-4">
+        <!-- Animated piano keys -->
+        <div class="flex items-end gap-1 justify-center">
+          <div class="w-4 h-10 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: 0s;"></div>
+          <div class="w-4 h-14 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .08s;"></div>
+          <div class="w-4 h-12 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .16s;"></div>
+          <div class="w-4 h-16 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .24s;"></div>
+          <div class="w-4 h-12 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .32s;"></div>
+        </div>
+        <div id="loadingHeadline" class="text-lg font-medium">Loading your practice setup…</div>
+        <div id="loadingStatus" class="text-sm opacity-80">Initializing…</div>
+        <div class="text-xs opacity-60">LearnPiano</div>
+      </div>
+    </div>
     <div class="max-w-7xl mx-auto px-4 py-6">
       
       <header class="flex items-center justify-between mb-4">
@@ -286,7 +309,7 @@
                 <button id="testNoteBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Test Note</button>
               </div>
             </div>
-            <p class="text-xs opacity-70">Tip: Web MIDI requires HTTPS or localhost. Hot-plugging is supported.</p>
+            <p class="text-xs opacity-70">Tip: If you cannot find your device over, it may be switched off, or your computer may not have the necessary drivers installed.</p>
           </div>
           
           <div id="visualSettingsTab" class="space-y-3 hidden">
@@ -377,6 +400,8 @@
           if (isMobileUA || isCoarse) {
             var el = document.getElementById('mobileBlock');
             if (el) el.classList.remove('hidden');
+            var lo = document.getElementById('loadingOverlay');
+            if (lo) lo.classList.add('hidden');
             document.documentElement.style.overflow = 'hidden';
             document.body && (document.body.style.overflow = 'hidden');
             document.documentElement.classList.add('mobile-blocked');

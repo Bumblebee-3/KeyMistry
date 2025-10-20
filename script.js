@@ -6,6 +6,9 @@ if (window.__LP_BLOCKED) {
 }
 
 const fileInput = document.getElementById("fileInput");
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingHeadline = document.getElementById('loadingHeadline');
+const loadingStatus = document.getElementById('loadingStatus');
 const btnLoadPrevious = document.getElementById("btnLoadPrevious");
 const btnPlay = document.getElementById("btnPlay");
 const btnPause = document.getElementById("btnPause");
@@ -109,6 +112,7 @@ const app = {
   scheduled: false,
   synths: [],
   score: 0,
+  isLoading: true,
   expectedNotesByTime: new Map(),
   liveKeys: new Set(), 
   keyGlow: new Map(), 
@@ -117,7 +121,7 @@ const app = {
   practice: {
     noteWait: false,
     hand: 'both', 
-    loop: { enabled: false, start: 0, end: 0 },
+    loop: { enabled: false, start: 0, end: 0, pauseMs: 300, _pending: false, _timer: null },
     waiting: false,
     nextExpected: null, 
     groups: [], 
@@ -194,11 +198,23 @@ const PREF_PREFIX = 'lp_pref_';
 function savePref(key, value) {
   try { localStorage.setItem(PREF_PREFIX + key, JSON.stringify(value)); } catch {}
 }
+let __LP_LOAD_ERRORS = 0;
 function loadPref(key, def) {
   try {
     const s = localStorage.getItem(PREF_PREFIX + key);
     return s == null ? def : JSON.parse(s);
-  } catch { return def; }
+  } catch (e) {
+    __LP_LOAD_ERRORS++;
+    console.warn(`[LearnPiano] Failed to load pref ${key}`, e);
+    return def;
+  }
+}
+function setLoadingStatus(msg) { if (loadingStatus) loadingStatus.textContent = msg; }
+function setLoadingHeadline(msg) { if (loadingHeadline) loadingHeadline.textContent = msg; }
+function hideLoadingOverlay() {
+  if (!loadingOverlay) return;
+  loadingOverlay.style.opacity = '0';
+  setTimeout(() => { loadingOverlay.classList.add('hidden'); app.isLoading = false; }, 520);
 }
 function applyPrefsToUI() {
 
@@ -253,6 +269,11 @@ function applyPrefsToUI() {
   if (loopStart != null && loopStartInput) loopStartInput.value = String(loopStart);
   const loopEnd = loadPref('loopEnd', null);
   if (loopEnd != null && loopEndInput) loopEndInput.value = String(loopEnd);
+
+  // Mirror loop prefs into runtime state so loop works without requiring a UI change event
+  if (loopToggle) app.practice.loop.enabled = !!loopToggle.checked;
+  if (loopStartInput) app.practice.loop.start = Math.max(0, parseFloat(loopStartInput.value || '0') || 0);
+  if (loopEndInput) app.practice.loop.end = Math.max(0, parseFloat(loopEndInput.value || '0') || 0);
 
   const thru = loadPref('midiThru', null);
   if (thru != null && midiThruToggle) midiThruToggle.checked = !!thru;
@@ -379,6 +400,16 @@ function initFromMidi(midi) {
   updateTimeUI(0);
 
   buildPracticeGroups();
+
+  // Ensure loop defaults are sensible after loading a MIDI
+  if (app.practice.loop.enabled) {
+    if (!(app.practice.loop.end > app.practice.loop.start)) {
+      app.practice.loop.start = 0;
+      app.practice.loop.end = app.duration;
+      if (loopStartInput) loopStartInput.value = String(app.practice.loop.start);
+      if (loopEndInput) loopEndInput.value = String(Math.round(app.practice.loop.end * 10) / 10);
+    }
+  }
 }
 
 function buildTrackUI() {
@@ -504,13 +535,23 @@ function scheduleIfNeeded() {
     const t = getPlaybackTime();
     updateTimeUI(t);
 
-    updateStaffScroll(t);
+    // Staff scrolling removed; avoid calling undefined function
 
     if (app.practice.loop.enabled) {
-      const { start, end } = app.practice.loop;
-      if (end > start && t >= end) {
-        Tone.Transport.seconds = start;
-        ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
+      const loop = app.practice.loop;
+      const { start, end, pauseMs } = loop;
+      if (end > start && !loop._pending && t >= end) {
+        loop._pending = true;
+        const wasRunning = (Tone.Transport.state === 'started');
+        try { Tone.Transport.pause(); } catch {}
+        if (loop._timer) { try { clearTimeout(loop._timer); } catch {} loop._timer = null; }
+        loop._timer = setTimeout(() => {
+          loop._timer = null;
+          try { Tone.Transport.seconds = start; } catch {}
+          ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
+          if (wasRunning) { try { Tone.Transport.start(); } catch {} }
+          loop._pending = false;
+        }, Math.max(0, pauseMs || 300));
       }
     }
   }, 0.05);
@@ -556,12 +597,14 @@ btnStop.addEventListener("click", () => {
   updateTimeUI(0);
   stopAnimation({ clear: true });
   panicAll();
+  clearLoopTimer();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Play';
 });
 
 btnRestart.addEventListener("click", () => {
   Tone.Transport.stop();
   Tone.Transport.seconds = 0;
+  clearLoopTimer();
   scheduleIfNeeded();
 
   Tone.Transport.start(`+${START_DELAY}`);
@@ -580,6 +623,7 @@ progress.addEventListener("input", () => {
   ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   drawNotes(t);
   drawKeyboard();
+  clearLoopTimer();
 });
 
 speed.addEventListener("input", () => {
@@ -611,14 +655,17 @@ handBothBtn?.addEventListener('click', () => setHand('both'));
 loopToggle?.addEventListener('change', () => {
   app.practice.loop.enabled = loopToggle.checked;
   savePref('loopEnabled', loopToggle.checked);
+  if (!app.practice.loop.enabled) clearLoopTimer();
 });
 loopStartInput?.addEventListener('input', () => {
   app.practice.loop.start = Math.max(0, parseFloat(loopStartInput.value) || 0);
   savePref('loopStart', app.practice.loop.start);
+  clearLoopTimer();
 });
 loopEndInput?.addEventListener('input', () => {
   app.practice.loop.end = Math.max(0, parseFloat(loopEndInput.value) || 0);
   savePref('loopEnd', app.practice.loop.end);
+  clearLoopTimer();
 });
 
 feedbackClose?.addEventListener('click', () => {
@@ -1037,7 +1084,7 @@ function updateTimeUI(t) {
   const pct = d ? (t / d) * 100 : 0;
   const clamped = Math.max(0, Math.min(100, pct));
   if (!isNaN(clamped)) setProgressPercent(clamped);
-  if (d && t >= d) {
+  if (d && t >= d && !app.practice.loop.enabled) {
 
     Tone.Transport.stop();
     stopAnimation({ clear: true });
@@ -1051,6 +1098,17 @@ function setProgressPercent(pct) {
 
     progress.style.setProperty('--progress', `${pct}%`);
   } catch {}
+}
+
+// Clear any pending loop timers and reset loop state
+function clearLoopTimer() {
+  const loop = app.practice?.loop;
+  if (!loop) return;
+  if (loop._timer) {
+    try { clearTimeout(loop._timer); } catch {}
+    loop._timer = null;
+  }
+  loop._pending = false;
 }
 
 const BASE_TOLERANCE = 0.1; 
@@ -1229,25 +1287,81 @@ function flashKey(midi, ok) {
   showOverlay(ok ? "Correct!" : "Oops", 400);
 }
 
-applyPrefsToUI();
-initMIDI();
+async function loadPracticeStats() {
+  try {
+    const s = localStorage.getItem('practiceStats');
+    if (!s) return false;
+    const obj = JSON.parse(s);
+    if (obj && typeof obj === 'object') {
+      app.practice.stats = {
+        total: Number(obj.total) || 0,
+        correct: Number(obj.correct) || 0,
+        misses: Array.isArray(obj.misses) ? obj.misses : [],
+        timings: Array.isArray(obj.timings) ? obj.timings : [],
+      };
+      return true;
+    }
+  } catch (e) {
+    __LP_LOAD_ERRORS++;
+    console.warn('[LearnPiano] Failed to load practiceStats', e);
+  }
+  return false;
+}
+
+function anySavedDataPresent() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i) || '';
+      if (k.startsWith(PREF_PREFIX) || k === 'practiceStats' || k === 'lp_last_midi_b64' || k === 'lp_last_midi_name') return true;
+    }
+  } catch {}
+  return false;
+}
+
+async function bootstrap() {
+  try {
+    setLoadingHeadline('Loading your practice setup…');
+    setLoadingStatus('Loading preferences…');
+    applyPrefsToUI();
+
+    setLoadingStatus('Loading MIDI config…');
+    await initMIDI();
+
+    setLoadingStatus('Loading practice progress…');
+    await loadPracticeStats();
+    updatePreviousButtonLabel();
+
+    const hadAny = anySavedDataPresent();
+    if (!hadAny || __LP_LOAD_ERRORS > 0) {
+      setLoadingHeadline('Starting fresh…');
+      setLoadingStatus(__LP_LOAD_ERRORS > 0 ? 'Some saved data could not be read.' : '');
+      await sleep(1500);
+    } else {
+      const b64 = localStorage.getItem('lp_last_midi_b64');
+      const name = localStorage.getItem('lp_last_midi_name');
+      if (b64) {
+        setLoadingStatus('Loading previous MIDI…');
+        try {
+          const binStr = atob(b64);
+          const bytes = new Uint8Array(binStr.length);
+          for (let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
+          const midi = new Midi(bytes.buffer);
+          initFromMidi(midi);
+          if (name) showOverlay(`Loaded previous: ${name}`);
+        } catch (e) {
+          __LP_LOAD_ERRORS++;
+          console.warn('[LearnPiano] Failed to load previous MIDI', e);
+        }
+      }
+      await sleep(300);
+    }
+  } finally {
+    hideLoadingOverlay();
+  }
+}
 
 drawKeyboard();
-
-(function autoLoadPrevious() {
-  try {
-    const b64 = localStorage.getItem('lp_last_midi_b64');
-    if (!b64) return;
-    const binStr = atob(b64);
-    const bytes = new Uint8Array(binStr.length);
-    for (let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
-    const midi = new Midi(bytes.buffer);
-    initFromMidi(midi);
-    const name = localStorage.getItem('lp_last_midi_name') || 'Previous MIDI';
-    showOverlay(`Loaded previous: ${name}`);
-    updatePreviousButtonLabel();
-  } catch {}
-})();
+bootstrap();
 
 function roundRect(ctx, x, y, w, h, r) {
   const radius = Math.min(r, w * 0.5, h * 0.5);
