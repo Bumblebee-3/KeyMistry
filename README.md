@@ -1,8 +1,17 @@
-# LearnPiano — Web MIDI Piano Trainer
+<p align="center">
+  <img src="assets/favicon.png" alt="LearnPiano favicon" width="128" />
+  <br/>
+  <h1 align=center>LearnPiano</h1>
+  <h2 align=center>Web MIDI Piano Trainer</h2>
+ </p>
+
+
+
 
 <p align="center">
   <img src="assets/image.png" alt="LearnPiano screenshot" width="820" />
 </p>
+
 
 A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with piano roll, connect your MIDI keyboard for interactive practice, and track your progress.
 
