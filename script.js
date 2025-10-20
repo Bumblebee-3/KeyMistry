@@ -70,6 +70,10 @@ const noteOpacity = document.getElementById("noteOpacity");
 const noteOpacityLabel = document.getElementById("noteOpacityLabel");
 const glowIntensity = document.getElementById("glowIntensity");
 const glowIntensityLabel = document.getElementById("glowIntensityLabel");
+// Optional visual latency fine-tuning
+const visualLatencyInput = document.getElementById('visualLatencyOffset');
+const visualLatencyLabel = document.getElementById('visualLatencyLabel');
+let VISUAL_LATENCY = 0; // seconds; positive = advance visuals (hit earlier)
 
 const canvas = document.getElementById("pianoRoll");
 const ctx = canvas.getContext("2d");
@@ -259,6 +263,15 @@ function applyPrefsToUI() {
   if (glow != null && glowIntensity) {
     glowIntensity.value = String(glow);
     if (glowIntensityLabel) glowIntensityLabel.textContent = `${parseFloat(glow).toFixed(1)}x`;
+  }
+
+  const vlat = loadPref('visualLatencyOffset', null);
+  if (vlat != null) {
+    VISUAL_LATENCY = Number(vlat) || 0;
+  }
+  if (visualLatencyInput) {
+    visualLatencyInput.value = String((VISUAL_LATENCY * 1000) | 0);
+    if (visualLatencyLabel) visualLatencyLabel.textContent = `${(VISUAL_LATENCY * 1000) | 0} ms`;
   }
 
   const hand = loadPref('hand', null);
@@ -768,6 +781,13 @@ hitLineToggle?.addEventListener('change', () => savePref('hitLine', hitLineToggl
 gridToggle?.addEventListener('change', () => savePref('grid', gridToggle.checked));
 noteOpacity?.addEventListener('input', () => { const v = parseFloat(noteOpacity.value || '0.95'); savePref('noteOpacity', v); if (noteOpacityLabel) noteOpacityLabel.textContent = `${Math.round(v*100)}%`; });
 glowIntensity?.addEventListener('input', () => { const v = parseFloat(glowIntensity.value || '1'); savePref('glowIntensity', v); if (glowIntensityLabel) glowIntensityLabel.textContent = `${v.toFixed(1)}x`; });
+visualLatencyInput?.addEventListener('input', () => {
+  const ms = parseInt(visualLatencyInput.value || '0', 10);
+  const sec = clamp(ms / 1000, -0.25, 0.25); // clamp to ±250ms
+  VISUAL_LATENCY = sec;
+  savePref('visualLatencyOffset', sec);
+  if (visualLatencyLabel) visualLatencyLabel.textContent = `${ms} ms`;
+});
 
 function isBlackKey(midi) {
   const pitchClass = midi % 12;
@@ -898,7 +918,8 @@ function drawNotes(currentTime) {
     drawBeatGrid(currentTime);
   }
 
-  const drawAhead = NOTE_FALL_DURATION + 0.3; 
+  const FALL_DURATION = NOTE_FALL_DURATION; // seconds
+  const SPAWN_EARLY = 0.03; // small pre-spawn window for stability
 
   const isSoloActive = app.tracks.some((t) => t.solo);
 
@@ -916,36 +937,34 @@ function drawNotes(currentTime) {
   const tNotes = t.notes.filter(n => handFilter(n));
 
     tNotes.forEach((n) => {
-      const start = n.time;
-      const end = n.time + n.duration;
+    const start = n.time; // MIDI event time (audio note-on)
+    const end = n.time + n.duration;
+    if (currentTime >= end) return;
 
-      if (currentTime >= end) return;
-
-  if (start - currentTime > drawAhead) return;
+    // Visual start time: spawn so that the note reaches hit line exactly at 'start'
+    const startTime = start - FALL_DURATION; // baseline
+    if (currentTime < startTime - SPAWN_EARLY) return; // not yet spawned
 
   let x = midiToX(n.midi);
   const baseW = keyWidthFor(n.midi) * 0.9;
   let w = baseW;
-      const baseH = Math.max(6, n.duration * (HEIGHT - KEYBOARD_HEIGHT) / NOTE_FALL_DURATION);
+      const baseH = Math.max(6, n.duration * (HEIGHT - KEYBOARD_HEIGHT) / FALL_DURATION);
       const r = getRadius();
       const targetY = hitLineY();
       const startY = -40; 
 
-      let y, h;
+      // Progress of fall strictly from visual clock aligned to playback
+      const tNorm = clamp((currentTime - startTime + VISUAL_LATENCY) / FALL_DURATION, 0, 1);
+      const eased = easeInQuad(tNorm); // smooth but precise
+      const y = startY + (targetY - startY) * eased;
+      let h;
       if (currentTime < start) {
-
-        const dt = start - currentTime; 
-        const tNorm = clamp(1 - dt / NOTE_FALL_DURATION, 0, 1); 
-        const eased = easeInOutCubic(tNorm);
-        y = startY + (targetY - startY) * eased;
-        h = baseH;
+        h = baseH; // pre-hit: full height
       } else {
-
         const remaining = end - currentTime;
         const frac = clamp(remaining / n.duration, 0, 1);
-        y = targetY;
         h = Math.max(0, baseH * frac);
-        if (h < 1.5) return; 
+        if (h < 1.5) return;
       }
 
       const bucket = Math.round(start * 100) / 100; 
@@ -978,7 +997,7 @@ function drawNotes(currentTime) {
       ctx.fill();
       ctx.restore();
 
-      const nearStart = Math.abs(start - currentTime) < 0.06;
+  const nearStart = Math.abs(start - currentTime) < 0.02 || Math.abs(1 - tNorm) < 0.02;
       const pressed = app.liveKeys.has(n.midi);
       const isWaitingTarget = app.practice.waiting && waitingRequired?.has(n.midi);
       if (nearStart || isWaitingTarget) {
@@ -1400,6 +1419,10 @@ function shadeColor(hex, percent) {
 
 function easeInOutCubic(t) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function easeInQuad(t) {
+  return t * t;
 }
 
 function getRadius() {
