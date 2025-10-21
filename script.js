@@ -1,7 +1,7 @@
 import * as Tone from "https://cdn.skypack.dev/tone@14.8.49";
 import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
 
-if (window.__LP_BLOCKED) {
+if (window.__KM_BLOCKED) {
   // Export an empty module to satisfy type=module
 }
 savePref('grid', false)
@@ -43,6 +43,9 @@ const missListEl = document.getElementById("missList");
 const openMIDISettingsBtn = document.getElementById("openMIDISettings");
 const midiModal = document.getElementById("midiModal");
 const midiClose = document.getElementById("midiClose");
+const openTransposeSettingsBtn = document.getElementById('openTransposeSettings');
+const transposeModal = document.getElementById('transposeModal');
+const transposeClose = document.getElementById('transposeClose');
 const midiInSelect = document.getElementById("midiInSelect");
 const midiOutSelect = document.getElementById("midiOutSelect");
 const midiConnDot = document.getElementById("midiConnDot");
@@ -69,6 +72,14 @@ const noteOpacity = document.getElementById("noteOpacity");
 const noteOpacityLabel = document.getElementById("noteOpacityLabel");
 const glowIntensity = document.getElementById("glowIntensity");
 const glowIntensityLabel = document.getElementById("glowIntensityLabel");
+// Pitch & Key controls
+const transposeInput = document.getElementById('transpose');
+const transposeLabel = document.getElementById('transposeLabel');
+const keyTonicSelect = document.getElementById('keyTonic');
+const keyScaleSelect = document.getElementById('keyScale');
+const autoDetectKeyBtn = document.getElementById('autoDetectKey');
+const detectedKeyLabel = document.getElementById('detectedKeyLabel');
+const effectiveKeyLabel = document.getElementById('effectiveKeyLabel');
 // Optional visual latency fine-tuning
 const visualLatencyInput = document.getElementById('visualLatencyOffset');
 const visualLatencyLabel = document.getElementById('visualLatencyLabel');
@@ -121,6 +132,7 @@ const app = {
   keyGlow: new Map(), 
   upcomingKeys: new Set(), 
   _lastLandingFlash: new Map(), 
+  pitch: { transpose: 0, keyTonic: 0, keyScale: 'major', detectedTonic: null, detectedScale: null },
   practice: {
     noteWait: false,
     hand: 'both', 
@@ -174,7 +186,7 @@ function showOverlay(text, ms = 1200) {
 function updatePreviousButtonLabel() {
   if (!btnLoadPrevious) return;
   try {
-    const name = localStorage.getItem('lp_last_midi_name');
+    const name = localStorage.getItem('km_last_midi_name') || localStorage.getItem('lp_last_midi_name');
     if (name) {
       btnLoadPrevious.textContent = name;
       btnLoadPrevious.title = `Load previous: ${name}`;
@@ -201,7 +213,7 @@ function hitLineY() {
 window.addEventListener("resize", resizeCanvas);
 resizeCanvas();
 
-const PREF_PREFIX = 'lp_pref_';
+const PREF_PREFIX = 'km_pref_';
 function savePref(key, value) {
   try { localStorage.setItem(PREF_PREFIX + key, JSON.stringify(value)); } catch {}
 }
@@ -212,7 +224,7 @@ function loadPref(key, def) {
     return s == null ? def : JSON.parse(s);
   } catch (e) {
     __LP_LOAD_ERRORS++;
-    console.warn(`[LearnPiano] Failed to load pref ${key}`, e);
+  console.warn(`[KeyMistry] Failed to load pref ${key}`, e);
     return def;
   }
 }
@@ -266,6 +278,24 @@ function applyPrefsToUI() {
     if (glowIntensityLabel) glowIntensityLabel.textContent = `${parseFloat(glow).toFixed(1)}x`;
   }
 
+  // Pitch & Key
+  const tr = loadPref('transpose', null);
+  if (tr != null && transposeInput) {
+    transposeInput.value = String(tr);
+    if (transposeLabel) transposeLabel.textContent = `${tr}`;
+    app.pitch.transpose = parseInt(tr, 10) || 0;
+  }
+  const kt = loadPref('keyTonic', null);
+  if (kt != null && keyTonicSelect) {
+    keyTonicSelect.value = String(kt);
+    app.pitch.keyTonic = parseInt(kt, 10) || 0;
+  }
+  const ks = loadPref('keyScale', null);
+  if (ks && keyScaleSelect) {
+    keyScaleSelect.value = ks;
+    app.pitch.keyScale = ks;
+  }
+
   const vlat = loadPref('visualLatencyOffset', null);
   if (vlat != null) {
     VISUAL_LATENCY = Number(vlat) || 0;
@@ -314,8 +344,8 @@ fileInput.addEventListener("change", async (e) => {
     try {
       const bytes = new Uint8Array(arrayBuffer);
       const b64 = btoa(String.fromCharCode(...bytes));
-      localStorage.setItem('lp_last_midi_b64', b64);
-      localStorage.setItem('lp_last_midi_name', file.name);
+      localStorage.setItem('km_last_midi_b64', b64);
+      localStorage.setItem('km_last_midi_name', file.name);
       updatePreviousButtonLabel();
     } catch {}
   } catch (err) {
@@ -326,14 +356,14 @@ fileInput.addEventListener("change", async (e) => {
 
 btnLoadPrevious?.addEventListener('click', () => {
   try {
-    const b64 = localStorage.getItem('lp_last_midi_b64');
+    const b64 = localStorage.getItem('km_last_midi_b64') || localStorage.getItem('lp_last_midi_b64');
     if (!b64) return showOverlay('No previous MIDI saved');
     const binStr = atob(b64);
     const bytes = new Uint8Array(binStr.length);
     for (let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
     const midi = new Midi(bytes.buffer);
     initFromMidi(midi);
-    const name = localStorage.getItem('lp_last_midi_name') || 'Previous MIDI';
+  const name = localStorage.getItem('km_last_midi_name') || localStorage.getItem('lp_last_midi_name') || 'Previous MIDI';
     showOverlay(`Loaded: ${name}`);
     updatePreviousButtonLabel();
   } catch (e) {
@@ -424,6 +454,26 @@ function initFromMidi(midi) {
       if (loopEndInput) loopEndInput.value = String(Math.round(app.practice.loop.end * 10) / 10);
     }
   }
+
+  // Auto-detect key on load (non-destructive, only updates labels/selections)
+  const r = detectKeyFromMidi();
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  if (r) {
+    app.pitch.detectedTonic = r.tonic;
+    app.pitch.detectedScale = r.scale;
+    if (detectedKeyLabel) detectedKeyLabel.textContent = `${names[r.tonic]} ${r.scale}`;
+    // Only set if user hasn't set a key before (no pref saved)
+    const hadUserKey = loadPref('keyTonic', null) != null || loadPref('keyScale', null) != null;
+    if (!hadUserKey) {
+      app.pitch.keyTonic = r.tonic;
+      app.pitch.keyScale = r.scale;
+      if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
+      if (keyScaleSelect) keyScaleSelect.value = r.scale;
+    }
+    updateEffectiveKeyLabel();
+  } else if (detectedKeyLabel) {
+    detectedKeyLabel.textContent = '—';
+  }
 }
 
 function buildTrackUI() {
@@ -496,21 +546,23 @@ function scheduleIfNeeded() {
     filtered.forEach((n) => {
       const time = n.time + now;
       Tone.Transport.schedule((schedTime) => {
+        const midiOut = applyTranspose(n.midi);
         if (shouldUseLocalAudio() && synth) {
-          synth.triggerAttackRelease(Tone.Frequency(n.midi, "midi").toFrequency(), n.duration, schedTime, n.velocity);
+          synth.triggerAttackRelease(Tone.Frequency(midiOut, "midi").toFrequency(), n.duration, schedTime, n.velocity);
         }
 
-        sendNoteOn(n.midi, Math.round(n.velocity * 127), t.channel);
+        sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
       }, time);
 
       Tone.Transport.schedule(() => {
-        handleNoteOnVisual(n.midi, t.channel, colorForNoteObj(n));
+        handleNoteOnVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
       }, time);
 
       Tone.Transport.schedule(() => {
-        handleNoteOffVisual(n.midi, t.channel, colorForNoteObj(n));
+        handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
         const offDelay = app.midiIO.tailMs / 1000;
-        setTimeout(() => sendNoteOff(n.midi, t.channel), Math.max(0, offDelay * 1000));
+        const midiOut = applyTranspose(n.midi);
+        setTimeout(() => sendNoteOff(midiOut, t.channel), Math.max(0, offDelay * 1000));
       }, time + n.duration);
       if (modeSelect.value === 'practice') app.practice.stats.total++;
     });
@@ -687,6 +739,8 @@ feedbackClose?.addEventListener('click', () => {
 
 openMIDISettingsBtn?.addEventListener('click', () => midiModal?.classList.remove('hidden'));
 midiClose?.addEventListener('click', () => midiModal?.classList.add('hidden'));
+openTransposeSettingsBtn?.addEventListener('click', () => transposeModal?.classList.remove('hidden'));
+transposeClose?.addEventListener('click', () => transposeModal?.classList.add('hidden'));
 refreshMIDI?.addEventListener('click', () => initMIDI(true));
 practiceToggle?.addEventListener('change', () => {
   const on = practiceToggle.checked;
@@ -933,7 +987,7 @@ function drawNotes(currentTime) {
     if (!enabled) return;
   const tNotes = t.notes.filter(n => handFilter(n));
 
-    tNotes.forEach((n) => {
+  tNotes.forEach((n) => {
     const start = n.time; // MIDI event time (audio note-on)
     const end = n.time + n.duration;
     if (currentTime >= end) return;
@@ -942,8 +996,9 @@ function drawNotes(currentTime) {
     const startTime = start - FALL_DURATION; // baseline
     if (currentTime < startTime - SPAWN_EARLY) return; // not yet spawned
 
-  let x = midiToX(n.midi);
-  const baseW = keyWidthFor(n.midi) * 0.9;
+  const visMidi = applyTranspose(n.midi);
+  let x = midiToX(visMidi);
+  const baseW = keyWidthFor(visMidi) * 0.9;
   let w = baseW;
       const baseH = Math.max(6, n.duration * (HEIGHT - KEYBOARD_HEIGHT) / FALL_DURATION);
       const r = getRadius();
@@ -1015,16 +1070,16 @@ function drawNotes(currentTime) {
       }
 
       if (start - currentTime <= 0.4 && start - currentTime > 0) {
-        app.upcomingKeys.add(n.midi);
-        startKeyGlow(n.midi, true, col);
+        app.upcomingKeys.add(visMidi);
+        startKeyGlow(visMidi, true, col);
       }
 
       if (Math.abs(start - currentTime) < 1/60) {
-        const last = app._lastLandingFlash.get(n.midi) || 0;
+        const last = app._lastLandingFlash.get(visMidi) || 0;
         const now = performance.now();
         if (now - last > 120) {
-          keyLandingFlash(n.midi, col);
-          app._lastLandingFlash.set(n.midi, now);
+          keyLandingFlash(visMidi, col);
+          app._lastLandingFlash.set(visMidi, now);
         }
       }
     });
@@ -1213,25 +1268,27 @@ function onMIDIMessage(e) {
 
   if (cmd === 0x90 && velocity > 0) {
     console.debug && console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
-    handleNoteOnVisual(note, ch, colorForIncoming(note));
-    if (app.midiIO.thru) sendNoteOn(note, Math.round(velocity * 127));
-    checkNoteHit(note, now);
+  const tNote = applyTranspose(note);
+    handleNoteOnVisual(tNote, ch, colorForIncoming(note));
+    if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127));
+  checkNoteHit(tNote, now);
 
     if (app.practice.waiting) {
-      if (app.practice.requiredSet.has(note)) {
-        app.practice.hitSet.add(note);
+      if (app.practice.requiredSet.has(tNote)) {
+        app.practice.hitSet.add(tNote);
         if (isCurrentChordSatisfied()) {
           resumeFromGroupWait(now);
         }
       } else {
-        flashKey(note, false);
-        app.practice.stats.misses.push({ midi: note, time: now });
+        flashKey(tNote, false);
+        app.practice.stats.misses.push({ midi: tNote, time: now });
       }
     }
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
     console.debug && console.debug(`[LP] Note ${note} OFF ch${ch} at ${now.toFixed(3)}`);
-    handleNoteOffVisual(note, ch, colorForIncoming(note));
-    if (app.midiIO.thru) sendNoteOff(note);
+    const tNote = applyTranspose(note);
+    handleNoteOffVisual(tNote, ch, colorForIncoming(note));
+    if (app.midiIO.thru) sendNoteOff(tNote);
   } else if (cmd === 0xB0) {
 
     const controller = data1 & 0x7f;
@@ -1295,9 +1352,9 @@ function checkNoteHit(midi, timeSec) {
   for (const b of neighborBuckets) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
-    for (const note of list) {
-      if (!note.hit && note.midi === midi && Math.abs(note.time - timeSec) <= tolerance) {
-        note.hit = true;
+    for (const exp of list) {
+      if (!exp.hit && applyTranspose(exp.midi) === midi && Math.abs(exp.time - timeSec) <= tolerance) {
+        exp.hit = true;
         matched = true;
         app.score += 1;
         scoreEl.textContent = String(app.score);
@@ -1338,7 +1395,7 @@ async function loadPracticeStats() {
     }
   } catch (e) {
     __LP_LOAD_ERRORS++;
-    console.warn('[LearnPiano] Failed to load practiceStats', e);
+  console.warn('[KeyMistry] Failed to load practiceStats', e);
   }
   return false;
 }
@@ -1357,6 +1414,25 @@ async function bootstrap() {
   try {
     setLoadingHeadline('Loading your practice setup…');
     setLoadingStatus('Loading preferences…');
+    // Migrate old LearnPiano keys to KeyMistry if present
+    try {
+      const oldPrefix = 'lp_pref_';
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i) || '';
+        if (k.startsWith(oldPrefix)) {
+          const v = localStorage.getItem(k);
+          const newKey = 'km_pref_' + k.slice(oldPrefix.length);
+          if (localStorage.getItem(newKey) == null && v != null) {
+            localStorage.setItem(newKey, v);
+          }
+        }
+      }
+      // Also migrate saved MIDI blobs and names
+      const oldMidi = localStorage.getItem('lp_last_midi_b64');
+      const oldName = localStorage.getItem('lp_last_midi_name');
+      if (oldMidi && !localStorage.getItem('km_last_midi_b64')) localStorage.setItem('km_last_midi_b64', oldMidi);
+      if (oldName && !localStorage.getItem('km_last_midi_name')) localStorage.setItem('km_last_midi_name', oldName);
+    } catch {}
     applyPrefsToUI();
 
     setLoadingStatus('Loading MIDI config…');
@@ -1372,8 +1448,8 @@ async function bootstrap() {
       setLoadingStatus(__LP_LOAD_ERRORS > 0 ? 'Some saved data could not be read.' : '');
       await sleep(1500);
     } else {
-      const b64 = localStorage.getItem('lp_last_midi_b64');
-      const name = localStorage.getItem('lp_last_midi_name');
+  const b64 = localStorage.getItem('km_last_midi_b64') || localStorage.getItem('lp_last_midi_b64');
+  const name = localStorage.getItem('km_last_midi_name') || localStorage.getItem('lp_last_midi_name');
       if (b64) {
         setLoadingStatus('Loading previous MIDI…');
         try {
@@ -1385,7 +1461,7 @@ async function bootstrap() {
           if (name) showOverlay(`Loaded previous: ${name}`);
         } catch (e) {
           __LP_LOAD_ERRORS++;
-          console.warn('[LearnPiano] Failed to load previous MIDI', e);
+          console.warn('[KeyMistry] Failed to load previous MIDI', e);
         }
       }
       await sleep(300);
@@ -1504,8 +1580,9 @@ function setHand(hand) {
 }
 
 function handFilter(n) {
-  if (app.practice?.hand === 'left') return n.midi < 60;
-  if (app.practice?.hand === 'right') return n.midi >= 60;
+  const threshold = applyTranspose(60);
+  if (app.practice?.hand === 'left') return applyTranspose(n.midi) < threshold;
+  if (app.practice?.hand === 'right') return applyTranspose(n.midi) >= threshold;
   return true;
 }
 
@@ -1543,10 +1620,10 @@ function buildPracticeGroups() {
   let current = null;
   for (const n of sorted) {
     if (!current || Math.abs(n.time - current.time) > tol) {
-      current = { time: n.time, notes: [n.midi], ids: [n.id] };
+      current = { time: n.time, notes: [applyTranspose(n.midi)], ids: [n.id] };
       groups.push(current);
     } else {
-      current.notes.push(n.midi);
+      current.notes.push(applyTranspose(n.midi));
       current.ids.push(n.id);
     }
   }
@@ -1638,7 +1715,7 @@ function panicAll() {
 }
 
 function handColorForMidi(midi) {
-
+  // This function expects visual MIDI (already transposed if needed)
   return midi < 60 ? '#60a5fa' : '#fb923c';
 }
 
@@ -1650,12 +1727,12 @@ function colorForNoteObj(n) {
     if (n.trackIndex === 1) return '#fb923c';
     return TRACK_COLORS[n.trackIndex % TRACK_COLORS.length] || '#a78bfa';
   }
-  return handColorForMidi(n.midi);
+  return handColorForMidi(applyTranspose(n.midi));
 }
 
 function colorForIncoming(midi) {
   const trackCount = app.tracks?.length || 0;
-  if (trackCount <= 1) return handColorForMidi(midi);
+  if (trackCount <= 1) return handColorForMidi(applyTranspose(midi));
   const now = Tone.Transport.seconds;
   let best = null;
   for (let ti = 0; ti < app.tracks.length; ti++) {
@@ -1688,3 +1765,84 @@ function shouldUseLocalAudio() {
 }
 
 function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
+
+// ---------- Transpose & Key helpers ----------
+function applyTranspose(midi) {
+  const t = app.pitch?.transpose || 0;
+  return clamp(Math.round(midi + t), 0, 127);
+}
+
+function updateEffectiveKeyLabel() {
+  if (!effectiveKeyLabel) return;
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const tonic = ((app.pitch.keyTonic || 0) + (app.pitch.transpose || 0) + 120) % 12;
+  const scale = app.pitch.keyScale || 'major';
+  effectiveKeyLabel.textContent = `${names[tonic]} ${scale}`;
+}
+
+function detectKeyFromMidi() {
+  if (!app.midi) return null;
+  const maj = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+  const min = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+  const counts = new Array(12).fill(0);
+  for (const tr of app.tracks) {
+    for (const n of tr.notes) counts[n.midi % 12] += Math.max(1, n.duration);
+  }
+  const scoreFor = (profile) => {
+    let best = { tonic: 0, score: -Infinity };
+    for (let shift = 0; shift < 12; shift++) {
+      let sc = 0;
+      for (let i = 0; i < 12; i++) sc += counts[i] * profile[(12 + i - shift) % 12];
+      if (sc > best.score) best = { tonic: shift, score: sc };
+    }
+    return best;
+  };
+  const M = scoreFor(maj);
+  const m = scoreFor(min);
+  const scale = M.score >= m.score ? 'major' : 'minor';
+  const tonic = (scale === 'major' ? M.tonic : m.tonic) % 12;
+  return { tonic, scale };
+}
+
+// Bind transpose/key UI
+transposeInput?.addEventListener('input', () => {
+  const v = parseInt(transposeInput.value || '0', 10) || 0;
+  app.pitch.transpose = clamp(v, -12, 12);
+  if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
+  savePref('transpose', app.pitch.transpose);
+  const t = getPlaybackTime();
+  drawNotes(t);
+  drawKeyboard();
+  rescheduleTransport();
+  updateEffectiveKeyLabel();
+});
+keyTonicSelect?.addEventListener('change', () => {
+  app.pitch.keyTonic = parseInt(keyTonicSelect.value || '0', 10) || 0;
+  savePref('keyTonic', app.pitch.keyTonic);
+  updateEffectiveKeyLabel();
+});
+keyScaleSelect?.addEventListener('change', () => {
+  app.pitch.keyScale = keyScaleSelect.value || 'major';
+  savePref('keyScale', app.pitch.keyScale);
+  updateEffectiveKeyLabel();
+});
+autoDetectKeyBtn?.addEventListener('click', () => {
+  const r = detectKeyFromMidi();
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  if (r) {
+    app.pitch.detectedTonic = r.tonic;
+    app.pitch.detectedScale = r.scale;
+    if (detectedKeyLabel) detectedKeyLabel.textContent = `${names[r.tonic]} ${r.scale}`;
+    if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
+    if (keyScaleSelect) keyScaleSelect.value = r.scale;
+    app.pitch.keyTonic = r.tonic;
+    app.pitch.keyScale = r.scale;
+    savePref('keyTonic', app.pitch.keyTonic);
+    savePref('keyScale', app.pitch.keyScale);
+    updateEffectiveKeyLabel();
+  } else if (detectedKeyLabel) {
+    detectedKeyLabel.textContent = '—';
+  }
+});
+
+updateEffectiveKeyLabel();
