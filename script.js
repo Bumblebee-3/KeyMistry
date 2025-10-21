@@ -107,6 +107,10 @@ let HEIGHT = 0;
 const KEYBOARD_HEIGHT = 90; 
 let NOTE_FALL_DURATION = 4; 
 const HIT_LINE_Y = HEIGHT - KEYBOARD_HEIGHT - 4; 
+// Feature flags
+const LANDING_FLASH_ENABLED = false; // disable landing flashes to avoid any flicker
+const TRAILS_ENABLED = false;        // disable frame trails to avoid composite artifacts
+const SHADOWS_ENABLED = false;       // disable shadow/glow rendering to avoid flashes
 
 const TRACK_COLORS = [
   "#60a5fa", 
@@ -132,7 +136,18 @@ const app = {
   keyGlow: new Map(), 
   upcomingKeys: new Set(), 
   _lastLandingFlash: new Map(), 
-  pitch: { transpose: 0, keyTonic: 0, keyScale: 'major', detectedTonic: null, detectedScale: null },
+  pitch: {
+    transpose: 0,
+    // Target key selection (what user wants to play in)
+    keyTonic: 0,
+    keyScale: 'major',
+    // Original song key (from detection), used as transpose baseline
+    detectedTonic: null,
+    detectedScale: null,
+    // Optional persisted original key baseline
+    originalTonicPref: null,
+    originalScalePref: null,
+  },
   practice: {
     noteWait: false,
     hand: 'both', 
@@ -295,6 +310,11 @@ function applyPrefsToUI() {
     keyScaleSelect.value = ks;
     app.pitch.keyScale = ks;
   }
+  // Load optional original key (baseline) if stored
+  const ok = loadPref('originalTonic', null);
+  if (ok != null) app.pitch.originalTonicPref = parseInt(ok, 10) || 0;
+  const os = loadPref('originalScale', null);
+  if (os) app.pitch.originalScalePref = os;
 
   const vlat = loadPref('visualLatencyOffset', null);
   if (vlat != null) {
@@ -469,6 +489,19 @@ function initFromMidi(midi) {
       app.pitch.keyScale = r.scale;
       if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
       if (keyScaleSelect) keyScaleSelect.value = r.scale;
+    }
+    // Persist baseline original key
+    app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
+    app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
+    // Ensure transpose aligns effective key to selected key
+    const targetTonic = app.pitch.keyTonic ?? r.tonic;
+    const newT = computeTransposeForTarget(targetTonic);
+    if (app.pitch.transpose !== newT) {
+      app.pitch.transpose = newT;
+      savePref('transpose', app.pitch.transpose);
+      if (transposeInput) transposeInput.value = String(newT);
+      if (transposeLabel) transposeLabel.textContent = `${newT}`;
+      rescheduleTransport();
     }
     updateEffectiveKeyLabel();
   } else if (detectedKeyLabel) {
@@ -664,12 +697,22 @@ btnStop.addEventListener("click", () => {
   panicAll();
   clearLoopTimer();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Play';
+  // Clear any lingering visual state
+  app.liveKeys.clear();
+  app.keyGlow.clear();
+  app.upcomingKeys.clear();
+  app._lastLandingFlash.clear();
 });
 
 btnRestart.addEventListener("click", () => {
   Tone.Transport.stop();
   Tone.Transport.seconds = 0;
   clearLoopTimer();
+  // Clear any lingering visual state
+  app.liveKeys.clear();
+  app.keyGlow.clear();
+  app.upcomingKeys.clear();
+  app._lastLandingFlash.clear();
   scheduleIfNeeded();
 
   Tone.Transport.start(`+${START_DELAY}`);
@@ -900,13 +943,13 @@ function drawKeyboard() {
     ctx.fillStyle = "#111827";
     ctx.fillRect(x + whiteW - 1, kbY, 1, KEYBOARD_HEIGHT);
 
-    if (pressed || glow > 0.01) {
-      const grad = ctx.createLinearGradient(x, kbY, x, kbY + KEYBOARD_HEIGHT);
-      grad.addColorStop(0, hexToRgba(color, 0.55 * glow + (pressed ? 0.35 : 0)));
-      grad.addColorStop(1, hexToRgba(color, 0.15 * glow + (pressed ? 0.15 : 0)));
-      ctx.fillStyle = grad;
-      ctx.fillRect(x, kbY, whiteW - 1, KEYBOARD_HEIGHT);
-    }
+      if (pressed || glow > 0.01) {
+        const grad = ctx.createLinearGradient(x, kbY, x, kbY + KEYBOARD_HEIGHT);
+        grad.addColorStop(0, hexToRgba(color, 0.55 * glow + (pressed ? 0.35 : 0)));
+        grad.addColorStop(1, hexToRgba(color, 0.15 * glow + (pressed ? 0.15 : 0)));
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, kbY, whiteW - 1, KEYBOARD_HEIGHT);
+      }
 
     ctx.strokeStyle = pressed ? "rgba(239,68,68,0.95)" : "rgba(239,68,68,0.6)"; 
     ctx.lineWidth = pressed ? 2 : 1;
@@ -955,7 +998,7 @@ function drawNotes(currentTime) {
   if (!app.midi) return;
 
   const timeAdvanced = lastTimeDrawn < 0 || Math.abs(currentTime - lastTimeDrawn) > 1e-3;
-  if (trailToggle?.checked && Tone.Transport.state === "started" && timeAdvanced) {
+  if (TRAILS_ENABLED && trailToggle?.checked && Tone.Transport.state === "started" && timeAdvanced) {
     ctx.fillStyle = "rgba(9, 12, 22, 0.25)"; 
     ctx.fillRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   } else {
@@ -1040,14 +1083,16 @@ function drawNotes(currentTime) {
       roundRect(ctx, x, y - h, w, h, r);
       ctx.fill();
 
-  ctx.save();
-  const glowFactor = parseFloat(glowIntensity?.value || '1');
-  ctx.shadowColor = hexToRgba(col, 0.35 * (enhancedToggle?.checked ? glowFactor : 0.8));
-      ctx.shadowBlur = 8 * (enhancedToggle?.checked ? glowFactor : 0.8);
-      ctx.shadowOffsetY = 2;
-      roundRect(ctx, x, y - h, w, h, r);
-      ctx.fill();
-      ctx.restore();
+  if (SHADOWS_ENABLED) {
+    ctx.save();
+    const glowFactor = parseFloat(glowIntensity?.value || '1');
+    ctx.shadowColor = hexToRgba(col, 0.35 * (enhancedToggle?.checked ? glowFactor : 0.8));
+    ctx.shadowBlur = 8 * (enhancedToggle?.checked ? glowFactor : 0.8);
+    ctx.shadowOffsetY = 2;
+    roundRect(ctx, x, y - h, w, h, r);
+    ctx.fill();
+    ctx.restore();
+  }
 
   const nearStart = Math.abs(start - currentTime) < 0.02 || Math.abs(1 - tNorm) < 0.02;
       const pressed = app.liveKeys.has(n.midi);
@@ -1058,9 +1103,9 @@ function drawNotes(currentTime) {
         ctx.lineWidth = 2;
         roundRect(ctx, x, y - h, w, h, r);
         ctx.stroke();
-        if (isWaitingTarget) {
-
+        if (isWaitingTarget && SHADOWS_ENABLED) {
           ctx.save();
+          const glowFactor = parseFloat(glowIntensity?.value || '1');
           ctx.shadowColor = hexToRgba('#ef4444', 0.7);
           ctx.shadowBlur = 12 * pulse * (enhancedToggle?.checked ? glowFactor : 1);
           roundRect(ctx, x, y - h, w, h, r);
@@ -1074,12 +1119,14 @@ function drawNotes(currentTime) {
         startKeyGlow(visMidi, true, col);
       }
 
-      if (Math.abs(start - currentTime) < 1/60) {
-        const last = app._lastLandingFlash.get(visMidi) || 0;
-        const now = performance.now();
-        if (now - last > 120) {
-          keyLandingFlash(visMidi, col);
-          app._lastLandingFlash.set(visMidi, now);
+      if (LANDING_FLASH_ENABLED) {
+        if (Math.abs(start - currentTime) < 1/90) {
+          const last = app._lastLandingFlash.get(visMidi) || 0;
+          const now = performance.now();
+          if (now - last > 180) {
+            keyLandingFlash(visMidi, col);
+            app._lastLandingFlash.set(visMidi, now);
+          }
         }
       }
     });
@@ -1090,7 +1137,9 @@ function drawNotes(currentTime) {
 
 function keyLandingFlash(midi, col) {
   const now = performance.now();
-  app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 60, color: '#ffffff' });
+  // Use a brighter variant of the note color instead of pure white to avoid white flashes
+  const bright = shadeColor(col || '#60a5fa', 20);
+  app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 60, color: bright });
   setTimeout(() => {
     startKeyGlow(midi, true, col);
     setTimeout(() => startKeyGlow(midi, false, col), 120);
@@ -1775,7 +1824,7 @@ function applyTranspose(midi) {
 function updateEffectiveKeyLabel() {
   if (!effectiveKeyLabel) return;
   const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  const tonic = ((app.pitch.keyTonic || 0) + (app.pitch.transpose || 0) + 120) % 12;
+  const tonic = (app.pitch.keyTonic || 0);
   const scale = app.pitch.keyScale || 'major';
   effectiveKeyLabel.textContent = `${names[tonic]} ${scale}`;
 }
@@ -1804,21 +1853,73 @@ function detectKeyFromMidi() {
   return { tonic, scale };
 }
 
+function getOriginalTonic() {
+  // Prefer persisted original key, then detected, else assume C
+  if (app.pitch.originalTonicPref != null) return app.pitch.originalTonicPref;
+  if (app.pitch.detectedTonic != null) return app.pitch.detectedTonic;
+  return 0;
+}
+
+function computeTransposeForTarget(targetTonic) {
+  // We want: originalTonic + transpose ≡ targetTonic (mod 12)
+  const orig = getOriginalTonic();
+  let t = ((targetTonic - orig) % 12 + 12) % 12; // 0..11
+  // Map to [-6, +6] where possible, then clamp to [-12, +12]
+  if (t > 6) t = t - 12; // prefer negative equivalent
+  return clamp(t, -12, 12);
+}
+
+function syncTransposeUI() {
+  if (transposeInput) transposeInput.value = String(app.pitch.transpose);
+  if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
+}
+
 // Bind transpose/key UI
 transposeInput?.addEventListener('input', () => {
   const v = parseInt(transposeInput.value || '0', 10) || 0;
   app.pitch.transpose = clamp(v, -12, 12);
   if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
   savePref('transpose', app.pitch.transpose);
+  // Keep selected key equal to effective key: selectedKey = original + transpose (mod 12)
+  const newKey = ((getOriginalTonic() + app.pitch.transpose) % 12 + 12) % 12;
+  app.pitch.keyTonic = newKey;
+  if (keyTonicSelect) keyTonicSelect.value = String(newKey);
+  savePref('keyTonic', newKey);
+  // Clear visual/key states to prevent stuck highlights after transposition
+  try {
+    app.liveKeys.clear();
+    app.keyGlow.clear();
+    app.upcomingKeys.clear();
+    app._lastLandingFlash.clear();
+    // Clear sustained pedal buffers
+    app.pedal.sustained.forEach(set => set.clear());
+  } catch {}
   const t = getPlaybackTime();
-  drawNotes(t);
-  drawKeyboard();
+  drawNotes(t); drawKeyboard();
   rescheduleTransport();
   updateEffectiveKeyLabel();
 });
 keyTonicSelect?.addEventListener('change', () => {
   app.pitch.keyTonic = parseInt(keyTonicSelect.value || '0', 10) || 0;
   savePref('keyTonic', app.pitch.keyTonic);
+  // Adjust transpose so that effective key matches selected key
+  const newT = computeTransposeForTarget(app.pitch.keyTonic);
+  if (app.pitch.transpose !== newT) {
+    app.pitch.transpose = newT;
+    savePref('transpose', app.pitch.transpose);
+    syncTransposeUI();
+    // Clear visual/key states to prevent stuck highlights after transposition
+    try {
+      app.liveKeys.clear();
+      app.keyGlow.clear();
+      app.upcomingKeys.clear();
+      app._lastLandingFlash.clear();
+      app.pedal.sustained.forEach(set => set.clear());
+    } catch {}
+    const t = getPlaybackTime();
+    drawNotes(t); drawKeyboard();
+    rescheduleTransport();
+  }
   updateEffectiveKeyLabel();
 });
 keyScaleSelect?.addEventListener('change', () => {
@@ -1839,6 +1940,9 @@ autoDetectKeyBtn?.addEventListener('click', () => {
     app.pitch.keyScale = r.scale;
     savePref('keyTonic', app.pitch.keyTonic);
     savePref('keyScale', app.pitch.keyScale);
+    // Set baseline original key for consistent transpose calc
+    app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
+    app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
     updateEffectiveKeyLabel();
   } else if (detectedKeyLabel) {
     detectedKeyLabel.textContent = '—';

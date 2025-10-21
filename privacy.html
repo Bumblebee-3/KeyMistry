@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>KeyMistry — Privacy Policy</title>
+    <link rel="icon" type="image/png" href="./assets/favicon.png" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="./tailwind.css" />
+
+    <!-- Meta -->
+    <meta name="description" content="Read the KeyMistry Privacy Policy and learn how we handle analytics and local data.">
+    <meta name="author" content="Bumblebee-3" />
+    <meta name="theme-color" content="#0b1220" />
+
+    <style>
+      html { scroll-behavior: smooth; }
+      @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      .animate-fade-in { animation: fadeIn .6s ease-out both; }
+      .hero-blur { filter: blur(60px); opacity: .5; }
+      .glow-title { background: linear-gradient(90deg, rgba(45,212,191,.25), rgba(249,115,22,.25)); height: 2px; }
+      @keyframes gradientShift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+      .animated-gradient { background-size: 300% 300%; animation: gradientShift 14s ease infinite; }
+      @keyframes pulseRing { 0% { box-shadow: 0 0 0 0 rgba(59,130,246,0.45) } 70% { box-shadow: 0 0 0 16px rgba(59,130,246,0) } 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0) } }
+      .pulse-ring { animation: pulseRing 2.4s cubic-bezier(.4,0,.2,1) infinite; }
+    </style>
+  </head>
+  <body id="top" class="bg-gray-950 text-gray-100 antialiased">
+    <!-- Nav -->
+    <header class="sticky top-0 z-30 backdrop-blur supports-[backdrop-filter]:bg-gray-900/70 bg-gray-900/80 border-b border-white/10">
+      <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <img src="./assets/favicon.png" alt="KeyMistry" class="w-6 h-6 rounded" />
+          <span class="font-semibold tracking-tight">KeyMistry</span>
+        </div>
+        <nav class="hidden md:flex items-center gap-6 text-sm opacity-90">
+        </nav>
+        <div class="flex items-center gap-2">
+          <a href="./app" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow shadow-blue-600/20">Open App</a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hero -->
+    <section class="relative overflow-hidden animate-fade-in">
+      <div class="absolute inset-0 -z-10">
+        <div class="absolute -top-24 -left-24 w-80 h-80 rounded-full hero-blur" style="background: radial-gradient(closest-side, rgba(59,130,246,.25), transparent)"></div>
+        <div class="absolute -bottom-24 -right-24 w-96 h-96 rounded-full hero-blur" style="background: radial-gradient(closest-side, rgba(234,179,8,.2), transparent)"></div>
+        <!-- Animated gradient wash -->
+        <div class="absolute inset-0 opacity-20 animated-gradient" style="background-image: linear-gradient(120deg, rgba(59,130,246,.25), rgba(168,85,247,.22), rgba(16,185,129,.22));"></div>
+      </div>
+      <div class="max-w-5xl mx-auto px-4 py-12">
+        <h1 class="text-3xl md:text-4xl font-extrabold leading-tight tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300">Privacy Policy</h1>
+        <p class="mt-2 text-white/80">How we handle your data with transparency and care.</p>
+        <div class="mt-4 glow-title rounded"></div>
+      </div>
+    </section>
+
+    <!-- Content -->
+    <main class="max-w-3xl mx-auto px-4 mt-8 md:mt-16 animate-fade-in">
+      <div class="relative">
+        <!-- Glow border background -->
+        <div class="absolute -inset-4 rounded-3xl bg-gradient-to-r from-blue-500/25 via-fuchsia-500/25 to-emerald-500/25 blur-2xl opacity-50"></div>
+        <!-- Accent vertical bar -->
+        <div class="absolute -left-2 top-8 bottom-8 w-1 bg-gradient-to-b from-blue-400 via-fuchsia-400 to-emerald-400 rounded-full opacity-80"></div>
+        <article class="relative rounded-2xl border border-white/10 bg-gray-900/60 backdrop-blur px-6 md:px-8 py-6 prose prose-invert prose-p:text-gray-200 prose-a:text-teal-300 max-w-none">
+        <h2 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-teal-300 via-blue-300 to-amber-300 mt-2">Privacy Policy</h2>
+        <p><strong>Last updated:</strong> <span id="pp-date">[Insert Date]</span></p>
+        <p>Welcome to <strong>KeyMistry</strong> (“we”, “our”, “us”). This Privacy Policy describes how we collect, use, and protect your information when you use our website <a href="https://bumblebee-3.github.io/LearnPiano/" target="_blank" rel="noopener">https://bumblebee-3.github.io/LearnPiano/</a>.</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">1. Information We Collect</h3>
+        <p>We collect limited information to improve your experience and website performance:</p>
+        <p><strong>Local storage data:</strong><br/>We may store small pieces of data in your browser’s localStorage (e.g., your app settings, preferences, or progress).<br/>This data never leaves your device and is not shared with any external servers.</p>
+        <p><strong>Usage analytics:</strong><br/>We use tools such as Web Insights to collect anonymous data about how visitors use the site — for example, pages visited, time spent, or general device information.<br/>This helps us understand usage trends and improve functionality.</p>
+        <p>We do not collect personally identifiable information (such as names, emails, or passwords) unless explicitly provided through future features (like sign-ups or contact forms).</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">2. How We Use Your Information</h3>
+        <p>We use the collected information to:</p>
+        <ul>
+          <li class="animate-fade-in" style="animation-delay: .05s">Improve the app experience and performance</li>
+          <li class="animate-fade-in" style="animation-delay: .1s">Analyze site traffic and usage patterns</li>
+          <li class="animate-fade-in" style="animation-delay: .15s">Debug or enhance new features</li>
+        </ul>
+        <p>We never sell or rent your data to anyone.</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">3. Cookies and Local Storage</h3>
+        <p>KeyMistry does not use traditional cookies.<br/>Instead, we use localStorage, which stores data directly in your browser and can be cleared manually by you anytime via your browser settings.</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">4. Third-Party Services</h3>
+        <p>We may use third-party analytics tools (like Web Insights) that collect anonymous usage statistics.<br/>These tools have their own privacy policies and do not access personal data stored locally on your device.</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">5. Data Security</h3>
+        <p>All analytics and local storage operations are designed to minimize data collection.<br/>No sensitive personal data (such as payment info or login details) is processed or stored by us.</p>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">6. Your Choices</h3>
+        <p>You can:</p>
+        <ul>
+          <li class="animate-fade-in" style="animation-delay: .05s">Clear your localStorage data through your browser settings</li>
+          <li class="animate-fade-in" style="animation-delay: .1s">Use privacy-focused browser extensions or settings to block analytics</li>
+          <li class="animate-fade-in" style="animation-delay: .15s">Contact us for any privacy-related questions</li>
+        </ul>
+
+        <h3 class="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-blue-300 via-fuchsia-300 to-emerald-300 mt-8">7. Contact Us</h3>
+        <p>If you have questions about this Privacy Policy, you can contact us at:<br/>📧 <em>hridhuun@gmail.com</em></p>
+      </article>
+      </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-8 mt-16 border-t border-white/10">
+      <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+        <div class="flex items-center gap-2 text-white/70">
+          <img src="./assets/favicon.png" class="w-4 h-4" alt="KM"/>
+          <span>KeyMistry</span>
+        </div>
+        <div class="flex items-center gap-4 text-white/70">
+          <a class="hover:text-white" href="./index">Home</a>
+          <a class="hover:text-white" href="./privacy">Privacy</a>
+          <a class="hover:text-white" href="https://github.com/Bumblebee-3/LearnPiano" target="_blank" rel="noopener">GitHub</a>
+        </div>
+        <div class="text-white/60">Made with ❤️ by <a class="underline hover:text-white" href="https://github.com/Bumblebee-3" target="_blank" rel="noopener">Bumblebee-3</a></div>
+      </div>
+    </footer>
+
+    <!-- Back to top button -->
+    <a href="#top" id="backToTop" class="hidden fixed bottom-6 right-6 z-40">
+      <div class="pulse-ring rounded-full bg-gradient-to-tr from-blue-600 via-fuchsia-500 to-emerald-500 p-[2px]">
+        <div class="rounded-full bg-gray-900 p-3 shadow-lg">
+          <span class="block w-5 h-5 text-white">⬆️</span>
+        </div>
+      </div>
+    </a>
+
+    <script>
+      // Set Last Updated date to today if placeholder left in
+      (function(){
+        const el = document.getElementById('pp-date');
+        if (el && /Insert Date/i.test(el.textContent || '')) {
+          const d = new Date();
+          const month = d.toLocaleString('en-US', { month: 'long' });
+          el.textContent = `${month} ${d.getDate()}, ${d.getFullYear()}`;
+        }
+      })();
+
+      // Toggle back-to-top button visibility
+      (function(){
+        const btn = document.getElementById('backToTop');
+        if (!btn) return;
+        const onScroll = () => {
+          if (window.scrollY > 200) btn.classList.remove('hidden');
+          else btn.classList.add('hidden');
+        };
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
+      })();
+    </script>
+  </body>
+</html>
