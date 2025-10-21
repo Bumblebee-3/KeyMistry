@@ -9,16 +9,41 @@
     <link rel="stylesheet" href="./tailwind.css" />
 
     <!-- Meta -->
-  <meta name="description" content="KeyMistry is a modern, browser-based MIDI piano trainer with falling notes, key highlights, practice tools, and progress tracking." />
+    <meta name="description" content="KeyMistry is a modern, browser-based MIDI piano trainer with falling notes, key highlights, practice tools, and progress tracking." />
+    <meta name="keywords" content="piano, midi, practice, web midi, piano roll, learn piano, tone.js, music learning">
+    <meta name="robots" content="index, follow">
     <meta name="author" content="Bumblebee-3" />
     <meta name="theme-color" content="#0b1220" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="canonical" href="https://bumblebee-3.github.io/KeyMistry/">
 
     <!-- Social -->
     <meta property="og:type" content="website" />
-  <meta property="og:title" content="KeyMistry — Real-Time MIDI Piano Trainer" />
+    <meta property="og:site_name" content="KeyMistry" />
+    <meta property="og:title" content="KeyMistry — Real-Time MIDI Piano Trainer" />
     <meta property="og:description" content="Connect your keyboard, upload a MIDI, and learn smarter with falling notes, note-wait, hand isolation, and more." />
+    <meta property="og:url" content="https://bumblebee-3.github.io/KeyMistry/" />
     <meta property="og:image" content="./assets/image.png" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="KeyMistry — Real-Time MIDI Piano Trainer" />
+    <meta name="twitter:description" content="Connect your keyboard, upload a MIDI, and learn smarter with falling notes, note-wait, hand isolation, and more." />
+    <meta name="twitter:image" content="./assets/image.png" />
+    <meta name="twitter:creator" content="@Bumblebee3" />
+
+    <!-- JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "KeyMistry — Real-Time MIDI Piano Trainer",
+      "applicationCategory": "EducationalApplication",
+      "operatingSystem": "Web",
+      "description": "A browser-based MIDI practice tool with a piano roll, hands isolation, and practice mode using Web MIDI.",
+      "url": "https://bumblebee-3.github.io/KeyMistry/",
+      "author": {"@type": "Person", "name": "Bumblebee-3"},
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+    }
+    </script>
 
     <style>
       html { scroll-behavior: smooth; }
@@ -40,10 +65,10 @@
           <a href="#how" class="hover:text-white/90 transition">How it works</a>
           <a href="#features" class="hover:text-white/90 transition">Features</a>
           <a href="#gallery" class="hover:text-white/90 transition">Screenshots</a>
-          <a href="./privacy" class="hover:text-white/90 transition">Privacy</a>
+          <a href="./privacy.html" class="hover:text-white/90 transition">Privacy</a>
         </nav>
         <div class="flex items-center gap-2">
-          <a href="./app" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow shadow-blue-600/20">Open App</a>
+          <a href="./app.html" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow shadow-blue-600/20">Open App</a>
         </div>
       </div>
     </header>
@@ -62,7 +87,7 @@
           </h1>
           <p class="mt-4 text-white/80 text-lg">Connect your keyboard, follow falling notes, and get instant feedback. Practice with note‑wait, hand isolation, tempo & loop control, and progress tracking - right in your browser.</p>
           <div class="mt-6 flex flex-wrap items-center gap-3">
-            <a href="./app" class="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Start Practicing</a>
+            <a href="./app.html" class="px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Start Practicing</a>
             <a href="#how" class="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/15 transition">How it works</a>
           </div>
           <div class="mt-6 text-xs text-white/60">No installation required • Works with Web MIDI on desktop</div>
@@ -177,7 +202,7 @@
         <h2 class="text-3xl md:text-4xl font-extrabold">Ready to Play Your First Song?</h2>
         <p class="text-white/70 mt-3">Open the app, load a MIDI, and start learning with real‑time visual guidance.</p>
         <div class="mt-6">
-          <a href="./app" class="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Open App</a>
+          <a href="./app.html" class="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-600/25">Open App</a>
         </div>
       </div>
     </section>
@@ -190,9 +215,9 @@
           <span>KeyMistry</span>
         </div>
         <div class="flex items-center gap-4 text-white/70">
-          <a class="hover:text-white" href="https://github.com/Bumblebee-3/LearnPiano" target="_blank" rel="noopener">GitHub</a>
+          <a class="hover:text-white" href="https://github.com/Bumblebee-3" target="_blank" rel="noopener">GitHub</a>
           <a class="hover:text-white" href="#">Contact</a>
-          <a class="hover:text-white" href="./privacy">Privacy</a>
+          <a class="hover:text-white" href="./privacy.html">Privacy</a>
         </div>
         <div class="text-white/60">Made with ❤️ by <a class="underline hover:text-white" href="https://github.com/Bumblebee-3" target="_blank" rel="noopener">Bumblebee-3</a></div>
       </div>
