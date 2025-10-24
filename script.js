@@ -4,6 +4,8 @@ import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
 if (window.__KM_BLOCKED) {
   // Export an empty module to satisfy type=module
 }
+// Debug logging flag (disable to avoid performance hits)
+const LOG_MIDI = false;
 savePref('grid', false)
 const fileInput = document.getElementById("fileInput");
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -52,7 +54,7 @@ const midiConnDot = document.getElementById("midiConnDot");
 const refreshMIDI = document.getElementById("refreshMIDI");
 const testNoteBtn = document.getElementById("testNoteBtn");
 const midiThruToggle = document.getElementById("midiThruToggle");
-const practiceToggle = document.getElementById("practiceToggle");
+// Removed redundant practice toggle; use modeSelect instead
 const tailMsInput = document.getElementById("tailMsInput");
 const tailMsLabel = document.getElementById("tailMsLabel");
 
@@ -72,6 +74,12 @@ const noteOpacity = document.getElementById("noteOpacity");
 const noteOpacityLabel = document.getElementById("noteOpacityLabel");
 const glowIntensity = document.getElementById("glowIntensity");
 const glowIntensityLabel = document.getElementById("glowIntensityLabel");
+// Timing calibration UI
+const inputOffsetMsInput = document.getElementById('inputOffsetMs');
+const inputOffsetLabel = document.getElementById('inputOffsetLabel');
+// Octave tolerance UI
+const octaveTolInput = document.getElementById('octaveTol');
+const octaveTolLabel = document.getElementById('octaveTolLabel');
 // Pitch & Key controls
 const transposeInput = document.getElementById('transpose');
 const transposeLabel = document.getElementById('transposeLabel');
@@ -79,6 +87,52 @@ const keyTonicSelect = document.getElementById('keyTonic');
 const keyScaleSelect = document.getElementById('keyScale');
 const autoDetectKeyBtn = document.getElementById('autoDetectKey');
 const detectedKeyLabel = document.getElementById('detectedKeyLabel');
+// --- MIDI sanitization helpers -------------------------------------------------
+// Some MIDIs encode time signature meta (0xFF 0x58) with wrong length (e.g., 2 instead of 4),
+// which @tonejs/midi rejects. As a local workaround, downgrade such events to a benign
+// sequencer-specific meta (0xFF 0x7F) keeping the same length so chunk sizes remain valid.
+function sanitizeTimeSignatureMeta(u8) {
+  const out = new Uint8Array(u8); // copy to avoid mutating original
+  const n = out.length;
+  for (let i = 0; i < n - 3; i++) {
+    if (out[i] === 0xFF && out[i + 1] === 0x58) {
+      // Read VLQ length starting at i+2
+      let j = i + 2;
+      let len = 0;
+      let consumed = 0;
+      while (j < n) {
+        const b = out[j++];
+        consumed++;
+        len = (len << 7) | (b & 0x7F);
+        if ((b & 0x80) === 0) break;
+      }
+      if (len !== 4) {
+        // Change meta type to sequencer-specific to avoid strict parser check
+        out[i + 1] = 0x7F;
+      }
+      // Skip over data payload to continue scanning
+      i = (j + len - 1);
+    }
+  }
+  return out;
+}
+
+// Guided UI elements
+const guidedToggleBtn = document.getElementById('guidedToggle');
+const guidedPanel = document.getElementById('guidedPanel');
+const guidedSectionLabel = document.getElementById('guidedSectionLabel');
+const guidedStageLabel = document.getElementById('guidedStageLabel');
+const guidedAccBar = document.getElementById('guidedAccBar');
+const guidedAccLabel = document.getElementById('guidedAccLabel');
+const guidedPrevSecBtn = document.getElementById('guidedPrevSec');
+const guidedNextSecBtn = document.getElementById('guidedNextSec');
+const guidedUnderstoodBtn = document.getElementById('guidedUnderstoodBtn');
+const guidedNextStageBtn = document.getElementById('guidedNextStageBtn');
+const guidedHint = document.getElementById('guidedHint');
+const guidedPrompt = document.getElementById('guidedPrompt');
+const guidedPromptMsg = document.getElementById('guidedPromptMsg');
+const guidedPromptContinue = document.getElementById('guidedPromptContinue');
+
 const effectiveKeyLabel = document.getElementById('effectiveKeyLabel');
 // Optional visual latency fine-tuning
 const visualLatencyInput = document.getElementById('visualLatencyOffset');
@@ -124,6 +178,14 @@ const TRACK_COLORS = [
 ];
 
 const app = {
+  guided: {
+    enabled: false,
+    hasSeparateHands: false,
+    sections: [], // {label, start, end, mastery:{left,right,both}}
+    currentIndex: 0,
+    stage: 'left', // 'left'|'right'|'both'
+    progressKey: null, // localStorage key
+  },
   midi: undefined,
   duration: 0,
   tracks: [],
@@ -160,6 +222,19 @@ const app = {
     hitSet: new Set(), 
     lastWaitTime: -1,
     stats: { total: 0, correct: 0, misses: [], timings: [] },
+    groupTimeById: new Map(),
+    inputOffsetSec: 0, // calibration: positive means user's input arrives late (so shift forward)
+    hitWindowSec: 0.25, // acceptance window for early/late hits (±)
+    chordWindowSec: 0.06, // grouping window for chords
+    _waitTimeout: null,
+    autoContinue: false, // if true, auto-continue after grace when user doesn't complete chord
+    octaveTol: 1, // accept ±octaves for matching (0..2)
+    // Smart play-ahead
+    lookaheadSec: 2.5,
+    earlyHits: new Map(), // index -> Set<midi> matched early
+    skipWaitFor: new Set(), // indices that should not pause when reached
+    satisfiedGroups: new Set(), // group indices satisfied this loop
+    lastLoopAccPercent: 0, // persist last loop's accuracy for steady UI at loop restart
   },
   midiIO: {
     access: null,
@@ -254,8 +329,7 @@ function applyPrefsToUI() {
 
   const mode = loadPref('mode', null);
   if (mode && modeSelect) modeSelect.value = mode;
-  const practice = loadPref('practiceToggle', null);
-  if (practice != null && practiceToggle) practiceToggle.checked = !!practice;
+  // practice toggle removed
   const noteWait = loadPref('noteWait', null);
   if (noteWait != null && noteWaitToggle) noteWaitToggle.checked = !!noteWait;
 
@@ -292,6 +366,18 @@ function applyPrefsToUI() {
     glowIntensity.value = String(glow);
     if (glowIntensityLabel) glowIntensityLabel.textContent = `${parseFloat(glow).toFixed(1)}x`;
   }
+
+  // Timing calibration
+  const inOff = loadPref('inputOffsetMs', 0);
+  app.practice.inputOffsetSec = clamp((parseInt(inOff, 10) || 0) / 1000, -0.4, 0.4);
+  if (inputOffsetMsInput) inputOffsetMsInput.value = String(parseInt(inOff, 10) || 0);
+  if (inputOffsetLabel) inputOffsetLabel.textContent = `${parseInt(inOff, 10) || 0} ms`;
+
+  // Octave tolerance
+  const oTol = clamp(parseInt(loadPref('octaveTol', 1), 10) || 0, 0, 2);
+  app.practice.octaveTol = oTol;
+  if (octaveTolInput) octaveTolInput.value = String(oTol);
+  if (octaveTolLabel) octaveTolLabel.textContent = `±${oTol} oct`;
 
   // Pitch & Key
   const tr = loadPref('transpose', null);
@@ -357,7 +443,15 @@ fileInput.addEventListener("change", async (e) => {
   if (!file) return;
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const midi = new Midi(arrayBuffer);
+    let midi;
+    try {
+      midi = new Midi(arrayBuffer);
+    } catch (err) {
+      console.warn('[KeyMistry] Strict MIDI parse failed, attempting sanitize fallback…', err);
+      const bytes = new Uint8Array(arrayBuffer);
+      const safe = sanitizeTimeSignatureMeta(bytes);
+      midi = new Midi(safe.buffer);
+    }
     initFromMidi(midi);
     showOverlay(`Loaded: ${file.name}`);
 
@@ -381,7 +475,14 @@ btnLoadPrevious?.addEventListener('click', () => {
     const binStr = atob(b64);
     const bytes = new Uint8Array(binStr.length);
     for (let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
-    const midi = new Midi(bytes.buffer);
+    let midi;
+    try {
+      midi = new Midi(bytes.buffer);
+    } catch (err) {
+      console.warn('[KeyMistry] Previous MIDI parse failed, applying sanitize fallback…', err);
+      const safe = sanitizeTimeSignatureMeta(bytes);
+      midi = new Midi(safe.buffer);
+    }
     initFromMidi(midi);
   const name = localStorage.getItem('km_last_midi_name') || localStorage.getItem('lp_last_midi_name') || 'Previous MIDI';
     showOverlay(`Loaded: ${name}`);
@@ -464,6 +565,26 @@ function initFromMidi(midi) {
   updateTimeUI(0);
 
   buildPracticeGroups();
+
+  // Guided: initialize sections (~20s each) and detection of hand separation
+  try {
+    const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
+    app.guided.progressKey = `km_progress_${name}`;
+  } catch { app.guided.progressKey = null; }
+
+  const hasTwoOrMore = (app.tracks?.length || 0) > 1;
+  app.guided.hasSeparateHands = hasTwoOrMore;
+  const secLen = 20; // seconds
+  const count = Math.max(1, Math.ceil(app.duration / secLen));
+  app.guided.sections = Array.from({length: count}, (_, i) => {
+    const start = i * secLen;
+    const end = Math.min(app.duration, (i + 1) * secLen);
+    return { label: `Section ${i+1}`, start, end, mastery: { left: !hasTwoOrMore, right: !hasTwoOrMore, both: false }, accByStage: { left: 0, right: 0, both: 0 }, understoodByStage: { left: false, right: false, both: false }, lastTempo: 1 };
+  });
+  app.guided.currentIndex = 0;
+  app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+  restoreGuidedProgress();
+  updateGuidedUI();
 
   // Ensure loop defaults are sensible after loading a MIDI
   if (app.practice.loop.enabled) {
@@ -564,6 +685,277 @@ function buildTrackUI() {
   });
 }
 
+// Guided helpers and events (top-level)
+function restoreGuidedProgress() {
+  if (!app.guided.progressKey) return;
+  try {
+    const raw = localStorage.getItem(app.guided.progressKey);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (!data?.sections) return;
+    // merge mastery flags for matching indices
+    for (let i = 0; i < Math.min(app.guided.sections.length, Object.keys(data.sections).length); i++) {
+      const s = app.guided.sections[i];
+      const saved = data.sections[String(i+1)];
+      if (saved) {
+        s.mastery = { left: !!saved.left, right: !!saved.right, both: !!saved.both };
+        if (saved.accByStage) s.accByStage = { left: saved.accByStage.left||0, right: saved.accByStage.right||0, both: saved.accByStage.both||0 };
+        if (saved.understoodByStage) s.understoodByStage = { left: !!saved.understoodByStage.left, right: !!saved.understoodByStage.right, both: !!saved.understoodByStage.both };
+        if (typeof saved.lastTempo === 'number') s.lastTempo = clamp(saved.lastTempo, 0.5, 1.5);
+      }
+    }
+  } catch {}
+}
+
+function persistGuidedProgress() {
+  if (!app.guided.progressKey) return;
+  const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
+  const sections = {};
+  app.guided.sections.forEach((s, idx) => {
+    sections[String(idx+1)] = {
+      left: !!s.mastery.left,
+      right: !!s.mastery.right,
+      both: !!s.mastery.both,
+      accByStage: { ...s.accByStage },
+      understoodByStage: { ...s.understoodByStage },
+      lastTempo: s.lastTempo || 1
+    };
+  });
+  const separate = !!app.guided.hasSeparateHands;
+  const totalStages = app.guided.sections.reduce((a,s)=> a + (separate ? 3 : 1), 0);
+  const doneStages = app.guided.sections.reduce((a,s)=> {
+    if (separate) return a + (s.mastery.left?1:0) + (s.mastery.right?1:0) + (s.mastery.both?1:0);
+    // Single-track: only 'both' counts toward completion
+    return a + (s.mastery.both ? 1 : 0);
+  }, 0);
+  const completion = totalStages ? Math.round((doneStages / totalStages) * 100) : 0;
+  const payload = {
+    title: name.replace(/\.[^/.]+$/, ''),
+    separateHands: !!app.guided.hasSeparateHands,
+    sections,
+    completion,
+    lastPlayed: new Date().toISOString(),
+  };
+  try { localStorage.setItem(app.guided.progressKey, JSON.stringify(payload)); } catch {}
+}
+
+function updateGuidedUI() {
+  if (!guidedPanel) return;
+  const sec = app.guided.sections[app.guided.currentIndex];
+  if (!sec) return;
+  guidedSectionLabel && (guidedSectionLabel.textContent = sec.label);
+  guidedStageLabel && (guidedStageLabel.textContent = (app.guided.stage === 'left' ? 'Left Hand' : app.guided.stage === 'right' ? 'Right Hand' : 'Both Hands'));
+  if (guidedHint) {
+    guidedHint.textContent = app.guided.stage === 'left' ? 'Now practice your left hand.' : app.guided.stage === 'right' ? 'Now practice your right hand.' : 'Try combining both hands!';
+  }
+  // compute accuracy from current stats
+  const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
+  const fallback = app.practice.lastLoopAccPercent || 0;
+  const percent = total ? Math.round((correct / total) * 100) : fallback;
+  if (guidedAccBar) guidedAccBar.style.width = `${percent}%`;
+  if (guidedAccLabel) {
+    const s = app.guided.sections[app.guided.currentIndex];
+    const mk = (ok) => ok ? '✅' : '🔄';
+    const status = app.guided.hasSeparateHands ? `Left: ${mk(!!s.mastery.left)} | Right: ${mk(!!s.mastery.right)} | Both: ${mk(!!s.mastery.both)}` : `Both: ${mk(!!s.mastery.both)}`;
+    guidedAccLabel.textContent = `${percent}% accuracy — ${status}`;
+  }
+  const mastered = isStageMastered(app.guided.currentIndex, app.guided.stage);
+  if (guidedNextStageBtn) guidedNextStageBtn.classList.toggle('hidden', !mastered);
+}
+
+function isStageMastered(index, stage) {
+  const sec = app.guided.sections[index];
+  if (!sec) return false;
+  return !!sec.mastery?.[stage];
+}
+
+function markStageIfThreshold() {
+  // threshold: >=90% accuracy within current looped section
+  const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
+  const percent = total ? Math.round((correct / total) * 100) : 0;
+  if (percent >= 90) {
+    const sec = app.guided.sections[app.guided.currentIndex];
+    if (sec) {
+      // Record accuracy for this stage
+      if (sec.accByStage) sec.accByStage[app.guided.stage] = percent;
+      sec.mastery[app.guided.stage] = true;
+      persistGuidedProgress();
+      updateGuidedUI();
+    }
+  }
+}
+
+function evaluateLoopPerformance() {
+  // Calculate accuracy for this loop iteration from groups entirely within [start, end)
+  const loopStart = app.practice.loop?.start ?? 0;
+  const loopEnd = app.practice.loop?.end ?? app.duration;
+  const groups = app.practice.groups || [];
+  let expected = 0;
+  let correct = 0;
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    if (!g) continue;
+    if (g.time < loopStart) continue;
+    if (g.time >= loopEnd) break;
+    const sz = g.notes?.length || 0;
+    expected += sz;
+    if (app.practice.satisfiedGroups.has(i)) correct += sz;
+  }
+  app.practice.stats.total = expected;
+  app.practice.stats.correct = correct;
+  const percent = expected ? Math.round((correct / expected) * 100) : 0;
+  app.practice.lastLoopAccPercent = percent;
+  const sec = app.guided.sections[app.guided.currentIndex];
+  if (sec) {
+    if (sec.accByStage) sec.accByStage[app.guided.stage] = percent;
+  }
+  // Adaptive pacing
+  const currentFactor = parseFloat(speed.value || '1') || 1;
+  if (percent >= 90) {
+    const next = clamp(currentFactor + 0.1, 1.0, 1.3);
+    if (next > currentFactor + 1e-6) {
+      speed.value = String(next);
+      speed.dispatchEvent(new Event('input'));
+      showOverlay(`Great job! Increasing pace slightly… (${Math.round(next*100)}%)`, 1200);
+    }
+    if (sec) sec.lastTempo = next;
+    // Also mark stage mastered to unlock Next, but don't auto-advance
+    if (sec) sec.mastery[app.guided.stage] = true;
+    persistGuidedProgress();
+  } else if (percent < 80 && currentFactor > 1.0) {
+    speed.value = '1';
+    speed.dispatchEvent(new Event('input'));
+    if (sec) sec.lastTempo = 1;
+    showOverlay('Tempo back to normal for focus', 900);
+    persistGuidedProgress();
+  } else if (sec) {
+    sec.lastTempo = currentFactor;
+    persistGuidedProgress();
+  }
+  // Prepare for next loop iteration
+  app.practice.satisfiedGroups.clear();
+  updateGuidedUI();
+}
+
+function setGuidedLoopToCurrentSection() {
+  const sec = app.guided.sections[app.guided.currentIndex];
+  if (!sec) return;
+  app.practice.loop.enabled = true;
+  app.practice.loop.start = sec.start;
+  app.practice.loop.end = sec.end;
+  if (loopToggle) loopToggle.checked = true;
+  if (loopStartInput) loopStartInput.value = String(Math.round(sec.start * 10) / 10);
+  if (loopEndInput) loopEndInput.value = String(Math.round(sec.end * 10) / 10);
+  savePref('loopEnabled', true);
+  savePref('loopStart', sec.start);
+  savePref('loopEnd', sec.end);
+}
+
+function applyGuidedStageHand() {
+  if (!app.guided.enabled) return;
+  if (!app.guided.hasSeparateHands) { setHand('both'); return; }
+  if (app.guided.stage === 'left') setHand('left');
+  else if (app.guided.stage === 'right') setHand('right');
+  else setHand('both');
+}
+
+function startGuidedPracticeCycle() {
+  if (!app.guided.enabled) return;
+  // Force practice mode and note-wait
+  if (modeSelect) modeSelect.value = 'practice';
+  app.practice.noteWait = true;
+  if (noteWaitToggle) noteWaitToggle.checked = true;
+  // reset stats for this section run
+  app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+  clearEarlyLookaheadState();
+  updateGuidedUI();
+  setGuidedLoopToCurrentSection();
+  applyGuidedStageHand();
+  // Restore last tempo used for this section
+  const sec = app.guided.sections[app.guided.currentIndex];
+  const factor = clamp(Number(sec?.lastTempo) || 1, 0.5, 1.5);
+  if (speed) { speed.value = String(factor); speed.dispatchEvent(new Event('input')); }
+  rescheduleTransport();
+}
+
+guidedToggleBtn?.addEventListener('click', () => {
+  app.guided.enabled = !app.guided.enabled;
+  guidedPanel?.classList.toggle('hidden', !app.guided.enabled);
+  if (app.guided.enabled) {
+    // Prompt depending on tracks
+    if (guidedPrompt && guidedPromptMsg) {
+      if (app.guided.hasSeparateHands) {
+        guidedPromptMsg.textContent = "Detected separate left and right hand tracks. You’ll learn this song step-by-step — left, right, and then both together!";
+      } else {
+        guidedPromptMsg.textContent = "This MIDI file doesn’t differentiate left and right hand parts. You’ll practice both together.";
+      }
+      guidedPrompt.classList.remove('hidden');
+    }
+    startGuidedPracticeCycle();
+    // Ensure a dashboard entry exists immediately when Guided starts
+    persistGuidedProgress();
+  }
+});
+
+guidedPromptContinue?.addEventListener('click', () => {
+  guidedPrompt?.classList.add('hidden');
+});
+
+guidedPrevSecBtn?.addEventListener('click', () => {
+  if (app.guided.currentIndex > 0) {
+    app.guided.currentIndex--;
+    app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+    startGuidedPracticeCycle();
+    persistGuidedProgress();
+  }
+});
+guidedNextSecBtn?.addEventListener('click', () => {
+  if (app.guided.currentIndex < app.guided.sections.length - 1) {
+    app.guided.currentIndex++;
+    app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+    startGuidedPracticeCycle();
+    persistGuidedProgress();
+  }
+});
+
+guidedUnderstoodBtn?.addEventListener('click', () => {
+  const sec = app.guided.sections[app.guided.currentIndex];
+  if (sec) {
+    sec.understoodByStage[app.guided.stage] = true;
+  }
+  // If current stats meet threshold, mark stage as mastered
+  markStageIfThreshold();
+  updateGuidedUI();
+  persistGuidedProgress();
+  // Progress flow: move to next stage when user indicates understanding
+  if (!app.guided.hasSeparateHands) {
+    guidedNextSecBtn?.click();
+  } else {
+    if (app.guided.stage === 'left') app.guided.stage = 'right';
+    else if (app.guided.stage === 'right') app.guided.stage = 'both';
+    else guidedNextSecBtn?.click();
+    startGuidedPracticeCycle();
+  }
+});
+
+guidedNextStageBtn?.addEventListener('click', () => {
+  // Advance through left -> right -> both, or only both on single-track
+  if (!app.guided.hasSeparateHands) {
+    // advance to next section
+    guidedNextSecBtn?.click();
+    return;
+  }
+  if (app.guided.stage === 'left') app.guided.stage = 'right';
+  else if (app.guided.stage === 'right') app.guided.stage = 'both';
+  else {
+    // all done, next section
+    guidedNextSecBtn?.click();
+    return;
+  }
+  startGuidedPracticeCycle();
+  persistGuidedProgress();
+});
+
 function scheduleIfNeeded() {
   if (!app.midi || app.scheduled) return;
   Tone.Transport.cancel();
@@ -597,7 +989,7 @@ function scheduleIfNeeded() {
         const midiOut = applyTranspose(n.midi);
         setTimeout(() => sendNoteOff(midiOut, t.channel), Math.max(0, offDelay * 1000));
       }, time + n.duration);
-      if (modeSelect.value === 'practice') app.practice.stats.total++;
+      // Do not accumulate totals at schedule-time; accuracy is computed per loop window
     });
   });
 
@@ -645,6 +1037,10 @@ function scheduleIfNeeded() {
         if (loop._timer) { try { clearTimeout(loop._timer); } catch {} loop._timer = null; }
         loop._timer = setTimeout(() => {
           loop._timer = null;
+          try { evaluateLoopPerformance(); } catch {}
+          // Reset iteration stats and early lookahead caches for next loop
+          app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+          clearEarlyLookaheadState();
           try { Tone.Transport.seconds = start; } catch {}
           ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
           if (wasRunning) { try { Tone.Transport.start(); } catch {} }
@@ -672,7 +1068,10 @@ function rescheduleTransport() {
 
 btnPlay.addEventListener("click", async () => {
   await Tone.start(); 
-  try { Tone.getContext().lookAhead = Math.max(0.1, Tone.getContext().lookAhead || 0.12); } catch {}
+  try {
+    Tone.getContext().latencyHint = 'interactive';
+    Tone.getContext().lookAhead = Math.max(0.2, Tone.getContext().lookAhead || 0.2);
+  } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   scheduleIfNeeded();
   await doCountdownIfNeeded();
@@ -747,7 +1146,7 @@ modeSelect.addEventListener("change", () => {
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
   rescheduleTransport();
   savePref('mode', modeSelect.value);
-  if (practiceToggle) practiceToggle.checked = (modeSelect.value === 'practice');
+  // practice toggle removed
 });
 
 noteWaitToggle?.addEventListener('change', () => {
@@ -785,13 +1184,7 @@ midiClose?.addEventListener('click', () => midiModal?.classList.add('hidden'));
 openTransposeSettingsBtn?.addEventListener('click', () => transposeModal?.classList.remove('hidden'));
 transposeClose?.addEventListener('click', () => transposeModal?.classList.add('hidden'));
 refreshMIDI?.addEventListener('click', () => initMIDI(true));
-practiceToggle?.addEventListener('change', () => {
-  const on = practiceToggle.checked;
-  modeSelect.value = on ? 'practice' : 'listen';
-  const event = new Event('change');
-  modeSelect.dispatchEvent(event);
-  savePref('practiceToggle', on);
-});
+// practice toggle removed
 testNoteBtn?.addEventListener('click', () => {
 
   sendNoteOn(60, 100);
@@ -859,7 +1252,7 @@ fsPlayPause?.addEventListener('click', async () => {
   await Tone.start();
   try {
     Tone.getContext().latencyHint = 'interactive';
-    Tone.getContext().lookAhead = Math.max(0.1, Tone.getContext().lookAhead || 0.12);
+    Tone.getContext().lookAhead = Math.max(0.2, Tone.getContext().lookAhead || 0.2);
   } catch {}
   if (Tone.Transport.state === 'started') {
     Tone.Transport.pause();
@@ -1031,7 +1424,9 @@ function drawNotes(currentTime) {
   const tNotes = t.notes.filter(n => handFilter(n));
 
   tNotes.forEach((n) => {
-    const start = n.time; // MIDI event time (audio note-on)
+    // Use grouped time for synchronized chord visuals if available
+    const groupedTime = app.practice.groupTimeById?.get(n.id);
+    const start = (groupedTime != null ? groupedTime : n.time); // MIDI event time (audio note-on)
     const end = n.time + n.duration;
     if (currentTime >= end) return;
 
@@ -1207,7 +1602,7 @@ function clearLoopTimer() {
   loop._pending = false;
 }
 
-const BASE_TOLERANCE = 0.1; 
+const BASE_TOLERANCE = 0.25; 
 
 async function initMIDI(forceRefresh = false) {
   if (!navigator.requestMIDIAccess) {
@@ -1314,27 +1709,64 @@ function onMIDIMessage(e) {
   const note = data1;
   const velocity = data2 / 127;
   const now = Tone.Transport.seconds;
+  const nowCal = now + (app.practice.inputOffsetSec || 0);
 
   if (cmd === 0x90 && velocity > 0) {
-    console.debug && console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
+    if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
   const tNote = applyTranspose(note);
-    handleNoteOnVisual(tNote, ch, colorForIncoming(note));
-    if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127));
-  checkNoteHit(tNote, now);
+  handleNoteOnVisual(tNote, ch, colorForIncoming(note));
+  if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127));
+  checkNoteHit(tNote, nowCal);
+
+    // Smart play-ahead: credit hits for groups within lookahead window and skip their wait later
+    if (modeSelect.value === 'practice' && app.practice.noteWait) {
+      const ahead = findGroupsInLookahead(nowCal);
+      const tol = app.practice.octaveTol || 0;
+      for (const g of ahead) {
+        let set = app.practice.earlyHits.get(g.index);
+        if (!set) { set = new Set(); app.practice.earlyHits.set(g.index, set); }
+        // Mark if matches any required note by pitch class ±octaveTol
+        for (const req of g.notes) {
+          if (set.has(req)) continue;
+          if (midiMatchesWithOctave(req, tNote, tol)) {
+            set.add(req);
+            break;
+          }
+        }
+        if (set.size >= g.notes.length) {
+          app.practice.skipWaitFor.add(g.index);
+        }
+      }
+
+      // Also allow slight early arming of the immediate upcoming group (within hit window)
+      const near = findUpcomingGroupNearTime(nowCal);
+      if (near) {
+        if (!app.practice.waiting) {
+          app.practice.waiting = true;
+          app.practice.currentIndex = near.index;
+          app.practice.requiredSet = new Set(near.notes);
+          app.practice.hitSet = new Set();
+          app.practice.lastWaitTime = near.time;
+        }
+        if (matchAndMarkRequired(tNote)) {
+          if (isCurrentChordSatisfied()) {
+            if (Tone.Transport.state !== 'started') resumeFromGroupWait(now);
+          }
+        }
+      }
+    }
 
     if (app.practice.waiting) {
-      if (app.practice.requiredSet.has(tNote)) {
-        app.practice.hitSet.add(tNote);
+      if (matchAndMarkRequired(tNote)) {
         if (isCurrentChordSatisfied()) {
           resumeFromGroupWait(now);
         }
       } else {
-        flashKey(tNote, false);
-        app.practice.stats.misses.push({ midi: tNote, time: now });
+        // Ignore extra notes during waiting (no penalty)
       }
     }
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
-    console.debug && console.debug(`[LP] Note ${note} OFF ch${ch} at ${now.toFixed(3)}`);
+    if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} OFF ch${ch} at ${now.toFixed(3)}`);
     const tNote = applyTranspose(note);
     handleNoteOffVisual(tNote, ch, colorForIncoming(note));
     if (app.midiIO.thru) sendNoteOff(tNote);
@@ -1392,7 +1824,9 @@ function handleNoteOffVisual(midi, channel, color) {
 
 function checkNoteHit(midi, timeSec) {
   if (!app.midi) return false;
-  const tolerance = modeSelect.value === "practice" ? BASE_TOLERANCE * 0.8 : BASE_TOLERANCE * 1.2;
+  const calibration = app.practice.inputOffsetSec || 0;
+  const window = (app.practice.hitWindowSec || BASE_TOLERANCE);
+  const tolerance = window; // already in seconds, applied around expected times
 
   const bucket = Math.round(timeSec * 10) / 10;
   const neighborBuckets = [bucket, Math.round((timeSec + 0.05) * 10) / 10, Math.round((timeSec - 0.05) * 10) / 10];
@@ -1402,7 +1836,7 @@ function checkNoteHit(midi, timeSec) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
     for (const exp of list) {
-      if (!exp.hit && applyTranspose(exp.midi) === midi && Math.abs(exp.time - timeSec) <= tolerance) {
+      if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, app.practice.octaveTol || 0) && Math.abs(exp.time - timeSec) <= tolerance) {
         exp.hit = true;
         matched = true;
         app.score += 1;
@@ -1415,17 +1849,48 @@ function checkNoteHit(midi, timeSec) {
       }
     }
   }
+  if (!app.practice.waiting) {
+    flashKey(midi, false);
+    startKeyGlow(midi, true, '#ef4444');
+    setTimeout(() => startKeyGlow(midi, false, '#ef4444'), 200);
+  }
+  return false;
+}
 
-  flashKey(midi, false);
+// Accept if played matches expected within ±octaveTol octaves (same pitch class)
+function midiMatchesWithOctave(expected, played, octaveTol) {
+  if (expected === played) return true;
+  const tol = Math.max(0, Math.min(2, Number(octaveTol) || 0));
+  const diff = played - expected;
+  if ((diff % 12 + 12) % 12 !== 0) return false;
+  return Math.abs(diff) <= tol * 12;
+}
 
-  startKeyGlow(midi, true, '#ef4444');
-  setTimeout(() => startKeyGlow(midi, false, '#ef4444'), 200);
+// During waiting, mark the matching required note as hit using octave tolerance
+function matchAndMarkRequired(playedMidi) {
+  if (!app.practice.waiting) return false;
+  const tol = app.practice.octaveTol || 0;
+  for (const req of app.practice.requiredSet) {
+    if (app.practice.hitSet.has(req)) continue;
+    if (midiMatchesWithOctave(req, playedMidi, tol)) {
+      app.practice.hitSet.add(req);
+      return true;
+    }
+  }
   return false;
 }
 
 function flashKey(midi, ok) {
-
-  showOverlay(ok ? "Correct!" : "Oops", 400);
+  // Reduce UI spam to prevent jank in dense passages
+  if (modeSelect?.value === 'practice') {
+    // In practice, rely on visual key glow; avoid overlay per note
+    return;
+  }
+  const now = performance.now();
+  if (!flashKey._last || (now - flashKey._last) > 400) {
+    flashKey._last = now;
+    showOverlay(ok ? "Correct!" : "Oops", 400);
+  }
 }
 
 async function loadPracticeStats() {
@@ -1505,7 +1970,14 @@ async function bootstrap() {
           const binStr = atob(b64);
           const bytes = new Uint8Array(binStr.length);
           for (let i=0;i<binStr.length;i++) bytes[i] = binStr.charCodeAt(i);
-          const midi = new Midi(bytes.buffer);
+          let midi;
+          try {
+            midi = new Midi(bytes.buffer);
+          } catch (err) {
+            console.warn('[KeyMistry] Auto-load previous MIDI parse failed, applying sanitize fallback…', err);
+            const safe = sanitizeTimeSignatureMeta(bytes);
+            midi = new Midi(safe.buffer);
+          }
           initFromMidi(midi);
           if (name) showOverlay(`Loaded previous: ${name}`);
         } catch (e) {
@@ -1624,6 +2096,7 @@ function setHand(hand) {
     handBothBtn.className = `px-2 py-1 ${hand === 'both' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}`;
     handRightBtn.className = `px-2 py-1 ${hand === 'right' ? 'bg-blue-600' : 'bg-gray-700 hover:bg-gray-600'}`;
   }
+  clearEarlyLookaheadState();
   buildPracticeGroups();
   rescheduleTransport();
 }
@@ -1665,7 +2138,7 @@ function buildPracticeGroups() {
   const filtered = all.filter(n => handFilter(n));
   const sorted = filtered.sort((a,b)=>a.time - b.time);
   const groups = [];
-  const tol = 0.05; 
+  const tol = app.practice.chordWindowSec || 0.06; 
   let current = null;
   for (const n of sorted) {
     if (!current || Math.abs(n.time - current.time) > tol) {
@@ -1678,6 +2151,54 @@ function buildPracticeGroups() {
   }
   app.practice.groups = groups;
   app.practice.currentIndex = 0;
+  app.practice.groupTimeById = new Map();
+  for (const g of groups) {
+    for (const id of g.ids) app.practice.groupTimeById.set(id, g.time);
+  }
+  // Reset smart play-ahead caches when groups rebuild
+  app.practice.earlyHits = new Map();
+  app.practice.skipWaitFor = new Set();
+  app.practice.satisfiedGroups = new Set();
+}
+
+// Find the next chord/group near a given (possibly calibrated) time
+function findUpcomingGroupNearTime(tCal) {
+  if (!Array.isArray(app.practice.groups) || !app.practice.groups.length) return null;
+  const startIdx = Math.max(0, app.practice.currentIndex);
+  const maxIdx = Math.min(app.practice.groups.length - 1, startIdx + 3);
+  const win = (app.practice.hitWindowSec || BASE_TOLERANCE);
+  for (let i = startIdx; i <= maxIdx; i++) {
+    const g = app.practice.groups[i];
+    if (!g) continue;
+    if (Math.abs(g.time - tCal) <= win) return { ...g, index: i };
+    if (g.time > tCal + win) break;
+  }
+  return null;
+}
+
+// Find all groups within lookahead window [tCal, tCal + lookahead]
+function findGroupsInLookahead(tCal) {
+  const out = [];
+  const list = app.practice.groups || [];
+  const look = Math.max(0, app.practice.lookaheadSec || 0);
+  if (!list.length || look <= 0) return out;
+  // Limit to current loop/section if enabled
+  const loStart = app.practice.loop.enabled ? app.practice.loop.start : tCal;
+  const loEnd = app.practice.loop.enabled ? app.practice.loop.end : (tCal + look);
+  for (let i = 0; i < list.length; i++) {
+    const g = list[i];
+    if (g.time < loStart) continue;
+    if (g.time > Math.min(loEnd, tCal + look)) break;
+    if (g.time >= tCal) out.push({ ...g, index: i });
+  }
+  return out;
+}
+
+function clearEarlyLookaheadState() {
+  app.practice.earlyHits.clear();
+  app.practice.skipWaitFor.clear();
+  if (maybePauseForGroup._credited) maybePauseForGroup._credited.clear();
+  app.practice.satisfiedGroups.clear();
 }
 
 function maybePauseForGroup(index) {
@@ -1685,16 +2206,61 @@ function maybePauseForGroup(index) {
   const g = app.practice.groups[index];
   if (!g) return;
   const t = Tone.Transport.seconds;
+  const tCal = t + (app.practice.inputOffsetSec || 0);
 
   if (t > g.time + 0.02) return;
 
-  if (app.practice.waiting && app.practice.currentIndex === index) return;
-  app.practice.waiting = true;
-  app.practice.currentIndex = index;
-  app.practice.requiredSet = new Set(g.notes);
-  app.practice.hitSet = new Set();
-  app.practice.lastWaitTime = g.time;
-  Tone.Transport.pause();
+  // Smart play-ahead: if this group is marked to skip waiting, don't pause
+  if (app.practice.skipWaitFor.has(index)) {
+    // If we were waiting for this index, mark satisfied and continue
+    if (app.practice.waiting && app.practice.currentIndex === index) {
+      app.practice.waiting = false;
+      clearTimeout(app.practice._waitTimeout);
+    }
+    // Credit correctness for this group once when reached
+    if (!maybePauseForGroup._credited) maybePauseForGroup._credited = new Set();
+    if (!maybePauseForGroup._credited.has(index)) {
+      maybePauseForGroup._credited.add(index);
+      app.practice.stats.correct += (g.notes?.length || 0);
+      const delta = t - (g.time ?? t);
+      app.practice.stats.timings.push(delta);
+      updateGuidedUI();
+      app.practice.satisfiedGroups.add(index);
+    }
+    return;
+  }
+
+  // If already in waiting for this group, check if satisfied; avoid unnecessary pauses
+  if (app.practice.waiting && app.practice.currentIndex === index) {
+    if (isCurrentChordSatisfied()) {
+      app.practice.waiting = false;
+      return;
+    }
+  } else {
+    app.practice.waiting = true;
+    app.practice.currentIndex = index;
+    app.practice.requiredSet = new Set(g.notes);
+    app.practice.hitSet = new Set();
+    app.practice.lastWaitTime = g.time;
+  }
+
+  // Pause only if group not yet satisfied at its time
+  if (!isCurrentChordSatisfied()) {
+    Tone.Transport.pause();
+    // Safety: auto-continue after a short grace if not all notes were detected
+    if (app.practice.autoContinue) {
+      clearTimeout(app.practice._waitTimeout);
+      app.practice._waitTimeout = setTimeout(() => {
+        if (app.practice.waiting && app.practice.currentIndex === index && !isCurrentChordSatisfied()) {
+          // Count remaining notes as misses, then continue
+          for (const n of app.practice.requiredSet) {
+            if (!app.practice.hitSet.has(n)) app.practice.stats.misses.push({ midi: n, time: g.time });
+          }
+          resumeFromGroupWait(Tone.Transport.seconds);
+        }
+      }, Math.max(600, (app.practice.hitWindowSec || BASE_TOLERANCE) * 2000)); // ~2x hit window, min 600ms
+    }
+  }
 }
 
 function isCurrentChordSatisfied() {
@@ -1707,10 +2273,16 @@ function isCurrentChordSatisfied() {
 
 function resumeFromGroupWait(now) {
   app.practice.waiting = false;
+  clearTimeout(app.practice._waitTimeout);
 
   app.practice.stats.correct += app.practice.requiredSet.size;
   const delta = now - (app.practice.lastWaitTime ?? now);
   app.practice.stats.timings.push(delta);
+  // Record satisfied group index
+  if (Number.isFinite(app.practice.currentIndex)) {
+    app.practice.satisfiedGroups.add(app.practice.currentIndex);
+  }
+  updateGuidedUI();
 
   Tone.Transport.start();
 }
@@ -1893,11 +2465,34 @@ transposeInput?.addEventListener('input', () => {
     app._lastLandingFlash.clear();
     // Clear sustained pedal buffers
     app.pedal.sustained.forEach(set => set.clear());
+    // Reset guided/practice waiting state so required notes re-evaluate in new transpose
+    app.practice.waiting = false;
+    app.practice.requiredSet.clear();
+    app.practice.hitSet.clear();
   } catch {}
+  // Rebuild groups immediately with new transposed pitches
+  clearEarlyLookaheadState();
+  buildPracticeGroups();
   const t = getPlaybackTime();
   drawNotes(t); drawKeyboard();
   rescheduleTransport();
   updateEffectiveKeyLabel();
+});
+
+// Timing calibration controls
+inputOffsetMsInput?.addEventListener('input', () => {
+  const ms = parseInt(inputOffsetMsInput.value || '0', 10);
+  if (inputOffsetLabel) inputOffsetLabel.textContent = `${ms} ms`;
+  app.practice.inputOffsetSec = clamp(ms / 1000, -0.4, 0.4);
+  savePref('inputOffsetMs', ms);
+});
+
+// Octave tolerance controls
+octaveTolInput?.addEventListener('input', () => {
+  const v = clamp(parseInt(octaveTolInput.value || '1', 10) || 0, 0, 2);
+  app.practice.octaveTol = v;
+  if (octaveTolLabel) octaveTolLabel.textContent = `±${v} oct`;
+  savePref('octaveTol', v);
 });
 keyTonicSelect?.addEventListener('change', () => {
   app.pitch.keyTonic = parseInt(keyTonicSelect.value || '0', 10) || 0;
@@ -1915,7 +2510,12 @@ keyTonicSelect?.addEventListener('change', () => {
       app.upcomingKeys.clear();
       app._lastLandingFlash.clear();
       app.pedal.sustained.forEach(set => set.clear());
+      app.practice.waiting = false;
+      app.practice.requiredSet.clear();
+      app.practice.hitSet.clear();
     } catch {}
+    clearEarlyLookaheadState();
+    buildPracticeGroups();
     const t = getPlaybackTime();
     drawNotes(t); drawKeyboard();
     rescheduleTransport();

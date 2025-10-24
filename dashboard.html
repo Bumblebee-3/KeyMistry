@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>KeyMistry • Smart Progress Dashboard</title>
+  <meta name="description" content="Track your piano practice progress across songs with the KeyMistry Smart Dashboard." />
+  <link rel="canonical" href="https://bumblebee-3.github.io/KeyMistry/dashboard" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="KeyMistry • Smart Progress Dashboard" />
+  <meta property="og:description" content="See your guided learning progress, completion %, and recent activity." />
+  <meta property="og:url" content="https://bumblebee-3.github.io/KeyMistry/dashboard" />
+  <meta property="og:site_name" content="KeyMistry" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="KeyMistry • Smart Progress Dashboard" />
+  <meta name="twitter:description" content="See your guided learning progress, completion %, and recent activity." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="./tailwind.css" />
+</head>
+<body class="min-h-screen bg-gray-950 text-gray-100 antialiased">
+  <header class="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-gray-900/70 bg-gray-900/80 border-b border-white/10">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="./index" class="flex items-center gap-2 text-lg font-semibold tracking-tight">
+        <img src="./assets/favicon.png" alt="KeyMistry" class="w-6 h-6 rounded" />
+        <span>KeyMistry</span>
+      </a>
+      <nav class="hidden md:flex items-center gap-6 text-sm opacity-90">
+        <a href="./index" class="hover:text-white/90 transition">Home</a>
+        <a href="./app" class="hover:text-white/90 transition">App</a>
+        <a href="./privacy" class="hover:text-white/90 transition">Privacy</a>
+        <a href="./dashboard" class="hover:text-white/90 transition">Dashboard</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 py-8">
+    <section class="mb-8">
+      <h1 class="text-2xl sm:text-3xl font-bold mb-2">Smart Progress Dashboard</h1>
+      <p class="text-white/80 mb-4">Your guided learning progress is saved locally on this device. Sort, review, and reset as needed.</p>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="text-sm">Sort by</label>
+        <select id="sortBy" class="bg-gray-900/60 border border-white/10 rounded-lg px-3 py-2 text-sm">
+          <option value="recent">Recently Played</option>
+          <option value="title">Title</option>
+          <option value="completion">Completion</option>
+        </select>
+        <button id="resetAll" class="ml-auto px-3 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm">Reset All</button>
+      </div>
+    </section>
+
+    <section id="cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></section>
+
+    <section id="emptyState" class="hidden text-center py-16 text-white/60">
+      <p>No progress yet. Open the <a class="underline text-teal-400" href="./app">app</a>, enable Guided mode, and start practicing!</p>
+    </section>
+  </main>
+
+  <footer class="py-8 border-t border-white/10 mt-12">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+      <div class="flex items-center gap-2 text-white/70">
+        <img src="./assets/favicon.png" class="w-4 h-4" alt="KM"/>
+        <span>KeyMistry</span>
+      </div>
+      <div class="flex items-center gap-4 text-white/70">
+  <a class="hover:text-white" href="./privacy">Privacy</a>
+        <a class="hover:text-white" href="https://github.com/Bumblebee-3" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="text-white/60">© <span id="year"></span> KeyMistry</div>
+    </div>
+  </footer>
+
+  <script>
+    const cardsEl = document.getElementById('cards');
+    const emptyEl = document.getElementById('emptyState');
+    const sortByEl = document.getElementById('sortBy');
+    const resetAllBtn = document.getElementById('resetAll');
+    document.getElementById('year').textContent = new Date().getFullYear();
+
+    function getAllProgress() {
+      const items = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith('km_progress_')) continue;
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          if (!data || typeof data !== 'object') continue;
+          const sections = data.sections || {};
+          const separate = !!data.separateHands;
+          let stageCount = 0;
+          let stagesDone = 0;
+          Object.keys(sections).forEach(idx => {
+            const s = sections[idx];
+            if (!s) return;
+            if (separate) {
+              const flags = [!!s.left, !!s.right, !!s.both];
+              stageCount += 3;
+              stagesDone += flags.filter(Boolean).length;
+            } else {
+              stageCount += 1;
+              stagesDone += !!s.both ? 1 : 0;
+            }
+          });
+          const computed = Math.round((stagesDone / Math.max(1, stageCount)) * 100);
+          items.push({
+            key,
+            title: data.title || key.replace('km_progress_', ''),
+            // Always compute completion locally to avoid stale/buggy saved values
+            completion: computed,
+            lastPlayed: data.lastPlayed ? new Date(data.lastPlayed) : new Date(0),
+            sections,
+            stagesDone,
+            stageCount
+          });
+        } catch {}
+      }
+      return items;
+    }
+
+    function render() {
+      let items = getAllProgress();
+      const sortBy = sortByEl.value;
+      if (sortBy === 'recent') items.sort((a,b) => b.lastPlayed - a.lastPlayed);
+      else if (sortBy === 'title') items.sort((a,b) => a.title.localeCompare(b.title));
+      else if (sortBy === 'completion') items.sort((a,b) => b.completion - a.completion);
+
+      cardsEl.innerHTML = '';
+      if (!items.length) {
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+      emptyEl.classList.add('hidden');
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'rounded-2xl border border-white/10 bg-gray-900/60 p-4 backdrop-blur';
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="font-semibold text-lg">${item.title}</h3>
+              <div class="text-xs text-white/60">Last played: ${item.lastPlayed.toLocaleString()}</div>
+            </div>
+            <button data-key="${item.key}" class="reset-one px-2 py-1 text-xs rounded-md bg-gray-800 hover:bg-gray-700">Reset</button>
+          </div>
+          <div class="mt-3">
+            <div class="h-2 w-full rounded-full bg-white/10 overflow-hidden">
+              <div class="h-full bg-blue-600" style="width:${item.completion}%"></div>
+            </div>
+            <div class="mt-1 text-xs text-white/80">${item.completion}% complete • ${item.stagesDone}/${item.stageCount} stages</div>
+          </div>
+        `;
+        cardsEl.appendChild(card);
+      });
+
+      document.querySelectorAll('.reset-one').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-key');
+          if (!key) return;
+          if (!confirm('Reset progress for this song?')) return;
+          try { localStorage.removeItem(key); } catch {}
+          render();
+        });
+      });
+    }
+
+    sortByEl.addEventListener('change', render);
+    resetAllBtn.addEventListener('click', () => {
+      if (!confirm('Reset ALL guided learning progress?')) return;
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('km_progress_')) keys.push(key);
+      }
+      keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+      render();
+    });
+
+    render();
+  </script>
+  
+</body>
+</html>

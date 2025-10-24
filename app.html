@@ -139,10 +139,7 @@
                 Note-wait
               </label>
               
-              <label class="inline-flex items-center gap-2 text-sm ml-2 select-none">
-                <span>Practice</span>
-                <input id="practiceToggle" type="checkbox" class="accent-emerald-500" />
-              </label>
+              
             </div>
           </div>
 
@@ -163,16 +160,21 @@
             <div class="text-sm opacity-80">Score: <span id="score">0</span></div>
             <div id="midiStatus" class="text-xs opacity-70 hidden"></div>
             
+            <!-- Moved here to avoid crowding the top control row -->
+            <button id="guidedToggle" class="ml-auto px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl transition" aria-label="Guided Learning" title="Guided Learning">
+              🎓 Guided
+            </button>
+            
           </div>
 
           
           <div class="flex items-center gap-2 pt-2 border-t border-gray-700">
-            <div class="flex flex-wrap items-center gap-4 pt-2">
+            <div class="flex flex-wrap items-center gap-4">
             <label class="inline-flex items-center gap-2 text-sm">
               <input id="loopToggle" type="checkbox" class="accent-blue-500" />
               Loop
             </label>
-            <div class="flex items-center gap-2 text-sm">
+            <div class="flex items-center gap-3 text-sm px-2">
               <label for="loopStart" class="opacity-90">Start (s)</label>
               <input id="loopStart" type="number" step="0.1" min="0" value="0" class="w-20 bg-gray-800 rounded-md border border-gray-700 px-2 py-1" />
               <label for="loopEnd" class="opacity-90">End (s)</label>
@@ -183,7 +185,7 @@
               <span class="opacity-80">Hands:</span>
               <div class="inline-flex rounded-lg overflow-hidden border border-gray-600">
                 <button id="handLeft" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Left</button>
-                <button id="handBoth" class="px-2 py-1 bg-blue-600">Both</button>
+            <div class="flex items-center gap-2 text-sm ml-auto">
                 <button id="handRight" class="px-2 py-1 bg-gray-700 hover:bg-gray-600">Right</button>
               </div>
             </div>
@@ -226,12 +228,44 @@
         <div class="flex items-center justify-center gap-1">
           <span>Made by</span>
           <a href="https://github.com/Bumblebee-3" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">Bumblebee-3</a>
+          <span class="mx-2">•</span>
+          <a href="./dashboard" class="text-teal-400 hover:text-teal-300 underline underline-offset-2">📊 Dashboard</a>
         </div>
       </footer>
     </div>
 
+    <!-- Guided Learning Panel -->
+    <div id="guidedPanel" class="fixed right-3 bottom-3 z-40 hidden w-[320px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
+      <h3 class="text-lg font-semibold flex items-center gap-2">🎹 Guided Learning</h3>
+      <p class="text-xs opacity-70 mb-2">Master each section step by step.</p>
+      <div class="text-sm"><span id="guidedSectionLabel">Section 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
+      <div id="guidedHint" class="text-xs text-white/70 mt-1">Now practice your left hand.</div>
+      <div class="mt-2">
+        <div class="w-full h-2 rounded-full bg-gray-800 overflow-hidden">
+          <div id="guidedAccBar" class="h-full bg-blue-500" style="width:0%"></div>
+        </div>
+        <div id="guidedAccLabel" class="text-xs opacity-80 mt-1">0% accuracy</div>
+      </div>
+      <div class="mt-3 flex items-center gap-2">
+        <button id="guidedPrevSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Section</button>
+        <button id="guidedNextSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Section</button>
+        <button id="guidedUnderstoodBtn" class="ml-auto px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="I’ve understood this part — move on">Understood</button>
+        <button id="guidedNextStageBtn" class="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 hidden" title="Proceed to next phase">Next</button>
+      </div>
+    </div>
+
+    <!-- Guided Prompt Modal -->
+  <div id="guidedPrompt" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
+      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
+        <h3 class="text-lg font-semibold mb-2">Guided Learning</h3>
+        <p id="guidedPromptMsg" class="text-sm opacity-90"></p>
+        <div class="mt-4 flex justify-end">
+          <button id="guidedPromptContinue" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Continue</button>
+        </div>
+      </div>
+    </div>
     
-    <div id="feedbackModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
+  <div id="feedbackModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-[90%] p-4">
         <div class="flex items-center justify-between mb-3">
           <h3 class="text-lg font-semibold">Practice Summary</h3>
@@ -296,6 +330,20 @@
             <div>
               <label class="block text-sm opacity-80 mb-1">MIDI Output</label>
               <select id="midiOutSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700"></select>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-sm opacity-80">Input timing offset</label>
+              <div class="flex items-center gap-2">
+                <input id="inputOffsetMs" type="range" min="-200" max="200" step="5" value="0" />
+                <span id="inputOffsetLabel" class="text-sm w-16 text-right">0 ms</span>
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+              <label class="text-sm opacity-80">Octave tolerance</label>
+              <div class="flex items-center gap-2">
+                <input id="octaveTol" type="range" min="0" max="2" step="1" value="1" />
+                <span id="octaveTolLabel" class="text-sm w-16 text-right">±1 oct</span>
+              </div>
             </div>
             <div class="flex items-center justify-between gap-2">
               <label class="text-sm opacity-80">Sustain Tail</label>
