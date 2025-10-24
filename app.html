@@ -8,9 +8,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="./tailwind.css" />
 
-  <!-- Intro.js for interactive walkthrough -->
-  <link href="https://unpkg.com/intro.js/minified/introjs.min.css" rel="stylesheet" />
-  <script src="https://unpkg.com/intro.js/minified/intro.min.js"></script>
+    <!-- Driver.js (IIFE build) from jsDelivr: recommended by user to avoid MIME issues -->
+    <script src="https://cdn.jsdelivr.net/npm/driver.js@latest/dist/driver.js.iife.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@latest/dist/driver.css"/>
 
     <!-- SEO: Basic -->
   <meta name="description" content="KeyMistry is a browser-based MIDI practice tool with a piano roll, hands isolation, practice mode, and Web MIDI I/O. Upload a MIDI and start practicing right away.">
@@ -57,36 +57,36 @@
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-8px); }
       }
-      /* Intro.js theme tweaks for a minimal futuristic look */
-      .introjs-tooltip {
-        background: rgba(17, 24, 39, 0.95); /* gray-900 */
-        color: #e5e7eb; /* gray-200 */
-        border: 1px solid rgba(75, 85, 99, 0.8); /* gray-600 */
-        border-radius: 0.75rem; /* rounded-xl */
-        box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(16,185,129,0.08);
+      /* Driver.js popover theme tweaks */
+      .driver-popover {
+        background: rgba(17, 24, 39, 0.95) !important; /* gray-900 */
+        color: #e5e7eb !important; /* gray-200 */
+        border: 1px solid rgba(75, 85, 99, 0.8) !important; /* gray-600 */
+        border-radius: 0.75rem !important; /* rounded-xl */
+        box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(16,185,129,0.08) !important;
       }
-      .introjs-helperLayer {
+      .driver-popover-title {
+        color: #e5e7eb !important;
+      }
+      .driver-popover-description {
+        color: #cbd5e1 !important; /* slate-300 */
+      }
+      .driver-popover-prev-btn,
+      .driver-popover-next-btn,
+      .driver-popover-close-btn {
+        background: #111827 !important; /* gray-900 */
+        border: 1px solid #374151 !important; /* gray-700 */
+        color: #e5e7eb !important;
+        border-radius: 0.5rem !important;
+      }
+      .driver-popover-next-btn {
+        background: #0ea5e9 !important; /* sky-500 */
+        border-color: #0284c7 !important; /* sky-600 */
+        color: white !important;
+      }
+      .driver-highlighted-element, .driver-active-element {
         border-radius: 0.75rem !important;
-        box-shadow: 0 0 0 2px rgba(20,184,166,0.6), 0 0 30px rgba(20,184,166,0.4) !important; /* teal glow */
-      }
-      .introjs-tooltipbuttons .introjs-button {
-        background: #111827; /* gray-900 */
-        border: 1px solid #374151; /* gray-700 */
-        color: #e5e7eb;
-        border-radius: 0.5rem;
-      }
-      .introjs-tooltipbuttons .introjs-button.introjs-nextbutton,
-      .introjs-tooltipbuttons .introjs-button.introjs-donebutton {
-        background: #0ea5e9; /* sky-500 */
-        border-color: #0284c7; /* sky-600 */
-        color: white;
-      }
-      .introjs-tooltipbuttons .introjs-button.introjs-prevbutton {
-        background: #334155; /* slate-700 */
-        border-color: #475569; /* slate-600 */
-      }
-      .introjs-progressbar {
-        background-color: rgba(14,165,233,0.35) !important; /* progress tint */
+        box-shadow: 0 0 0 2px rgba(20,184,166,0.6) !important; /* teal glow */
       }
     </style>
   </head>
@@ -338,7 +338,7 @@
     <!-- Multi-track Warning Modal -->
     <div id="multiTrackModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
-        <h3 class="text-lg font-semibold mb-2">Multiple Instruments Detected</h3>
+  <h3 id="multiTrackTitle" class="text-lg font-semibold mb-2">Multiple Instruments Detected</h3>
   <p id="multiTrackText" class="text-sm opacity-90 whitespace-pre-line"></p>
         <div class="mt-4 flex justify-end gap-2">
           <button id="multiTrackCancel" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">Cancel</button>

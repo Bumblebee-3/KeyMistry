@@ -159,6 +159,7 @@ let VISUAL_LATENCY = 0; // seconds; positive = advance visuals (hit earlier)
 // Multi-track warning modal elements
 const multiTrackModal = document.getElementById('multiTrackModal');
 const multiTrackText = document.getElementById('multiTrackText');
+const multiTrackTitle = document.getElementById('multiTrackTitle');
 const multiTrackCancel = document.getElementById('multiTrackCancel');
 const multiTrackContinue = document.getElementById('multiTrackContinue');
 // Walkthrough elements
@@ -2322,8 +2323,9 @@ function countNoteTracks(midi) {
     return midi?.tracks?.filter(t => Array.isArray(t.notes) && t.notes.length > 0).length || 0;
   } catch { return 0; }
 }
-function openConfirmModal(message) {
+function openConfirmModal(message, title = 'Confirm') {
   return new Promise((resolve) => {
+    if (multiTrackTitle) multiTrackTitle.textContent = title;
     if (multiTrackText) multiTrackText.textContent = message;
     multiTrackModal?.classList.remove('hidden');
     const cleanup = () => {
@@ -2345,7 +2347,7 @@ async function shouldProceedWithMultiTrack(midi) {
     '',
     'Continue loading this MIDI?'
   ].join('\n');
-  const ok = await openConfirmModal(msg);
+  const ok = await openConfirmModal(msg, 'Multiple Instruments Detected');
   if (ok) {
     // Gentle tip toast after continuing
     showOverlay('Tip: Use the Mute/Solo buttons in the Tracks panel to limit to piano parts.', 2000);
@@ -2353,50 +2355,76 @@ async function shouldProceedWithMultiTrack(midi) {
   return ok;
 }
 
-// ===== Walkthrough (Intro.js) =====
+// ===== Walkthrough (Driver.js) =====
 function closeWalkthroughWelcome() { walkthroughWelcome?.classList.add('hidden'); }
 function openWalkthroughWelcome() { walkthroughWelcome?.classList.remove('hidden'); }
 
-function getWalkthroughSteps() {
-  return [
-    { intro: "Welcome! This quick tour will show you how to upload MIDI, practice, and track progress." },
-    { element: document.querySelector('#uploadLabel'), intro: "Upload a MIDI file to start learning. Your file stays local and private." },
-    { element: document.querySelector('#tracksPanel') || document.querySelector('aside'), intro: "Each instrument track is listed here. Use mute/solo and notice the hand colors: Left = electric blue, Right = soft orange." },
-    { element: document.querySelector('#pianoRoll'), intro: "These falling tiles represent notes. When they touch the keyboard line, press that key!" },
-    { element: document.querySelector('#modeSelect'), intro: "Switch between Listen and Practice. Guided Mode teaches each section step-by-step." },
-    { element: document.querySelector('#guidedToggle'), intro: "Open Guided Learning when you’re ready for structured stages." },
-    { element: document.querySelector('#speed'), intro: "Adjust the playback tempo to slow down tricky parts." },
-    { element: document.querySelector('#openTransposeSettings'), intro: "Transpose and key settings let you shift the song to a comfortable scale." },
-    { element: document.querySelector('#progress'), intro: "Scrub through the song. Your practice stats and progress are saved automatically in your browser." },
-    { element: document.querySelector('#dashboardLink'), intro: "Open the Dashboard to review accuracy and completion over time." },
-    { intro: "You’re all set! Upload a song and start mastering piano." }
+function getDriverSteps() {
+  // Build steps and filter out any missing elements to avoid "no steps" runtime error
+  const defs = [
+    { sel: '#uploadLabel', title: 'MIDI Upload', desc: 'Upload a MIDI file to start learning. Your file stays local and private.', side: 'bottom', align: 'start' },
+    { sel: '#openMIDISettings', title: 'MIDI & Visual Settings', desc: 'Configure MIDI input/output, timing offsets, and visual preferences.', side: 'bottom', align: 'end' },
+    { sel: '#openTransposeSettings', title: 'Transpose & Key', desc: 'Shift the song to a comfortable scale with transpose and key settings.', side: 'bottom', align: 'end' },
+    { sel: '#modeSelect', title: 'Practice & Guided Modes', desc: 'Switch between Listen and Practice. Guided Mode teaches each section step-by-step.', side: 'bottom', align: 'start' },
+    { sel: '#progress', title: 'Timeline', desc: 'Scrub through the song. Your accuracy and progress save automatically in your browser.', side: 'bottom', align: 'center' },
+    { sel: '#speed', title: 'Tempo', desc: 'Adjust the playback tempo to slow down tricky parts.', side: 'bottom', align: 'start' },
+    { sel: '#guidedToggle', title: 'Guided Learning', desc: 'Open the Guided panel when you’re ready for structured stages.', side: 'bottom', align: 'end' },
+    { sel: '#loopToggle', title: 'Loop Practice', desc: 'Enable Loop and set Start/End to focus on a section while it repeats.', side: 'bottom', align: 'start' },
+    { sel: '#tracksPanel', title: 'Track Colors', desc: 'Each instrument track is listed here. Use mute/solo. Left hand = electric blue, Right hand = soft orange.', side: 'right', align: 'start' },
+    { sel: '#pianoRoll', title: 'Falling Notes', desc: 'These falling tiles represent notes. When they touch the keyboard line, press that key!', side: 'top', align: 'center' },
+    { sel: '#dashboardLink', title: 'Progress Dashboard', desc: 'Open the Dashboard to review accuracy and completion over time.', side: 'top', align: 'center' }
   ];
+  const steps = [];
+  for (const d of defs) {
+    if (document.querySelector(d.sel)) {
+      steps.push({ element: d.sel, popover: { title: d.title, description: d.desc, side: d.side, align: d.align } });
+    }
+  }
+  return steps;
 }
 
-function startWalkthrough() {
-  if (typeof introJs !== 'function') {
-    console.warn('Intro.js not loaded');
+async function startWalkthrough() {
+  // Resolve driver factory from CDN IIFE build or fallback
+  let driverFactory = null;
+  if (window.driver && window.driver.js && typeof window.driver.js.driver === 'function') {
+    driverFactory = window.driver.js.driver;
+  } else if (typeof window.driver === 'function') {
+    driverFactory = window.driver; // fallback if global exposes directly
+  }
+  if (!driverFactory) {
+    // Wait for any async loader if present
+    if (window._driverReady && typeof window._driverReady.then === 'function') {
+      try { await window._driverReady; } catch {}
+      if (window.driver && window.driver.js && typeof window.driver.js.driver === 'function') driverFactory = window.driver.js.driver;
+      else if (typeof window.driver === 'function') driverFactory = window.driver;
+    }
+  }
+  if (!driverFactory) {
+    console.warn('Driver.js not loaded');
     return;
   }
-  const intro = introJs();
-  intro.setOptions({
-    steps: getWalkthroughSteps(),
+  const steps = getDriverSteps();
+  if (!steps.length) {
+    console.warn('Walkthrough: no steps found (selectors missing?).');
+    if (typeof showOverlay === 'function') showOverlay('Tutorial unavailable right now.', 1800);
+    return;
+  }
+  const driverObj = driverFactory({
     showProgress: true,
-    exitOnOverlayClick: true,
-    disableInteraction: false,
-    nextLabel: 'Next',
-    prevLabel: 'Back',
-    doneLabel: 'Done',
-    hidePrev: false,
-    hideNext: false,
+    allowClose: true,
+    steps,
+    nextBtnText: 'Next',
+    prevBtnText: 'Back',
+    doneBtnText: 'Done',
+    onDestroyed: () => {
+      try { localStorage.setItem('km_walkthrough_done', 'true'); } catch {}
+    }
   });
-  intro.onchange(function() {
-    try { localStorage.setItem('km_walkthrough_last_step', String(this._currentStep || 0)); } catch {}
-  });
-  const setDone = () => { try { localStorage.setItem('km_walkthrough_done', 'true'); } catch {} };
-  intro.oncomplete(setDone);
-  intro.onexit(setDone);
-  intro.start();
+  try { driverObj.drive(); }
+  catch (e) {
+    // Fallback: try highlighting the first step directly if drive is unavailable
+    try { driverObj.highlight(steps[0]); } catch {}
+  }
 }
 
 function maybeAutoStartWalkthrough() {
@@ -2421,7 +2449,7 @@ walkthroughSkip?.addEventListener('click', () => {
 
 // Replay button
 helpWalkthroughBtn?.addEventListener('click', async () => {
-  const ok = await openConfirmModal('Replay the walkthrough?');
+  const ok = await openConfirmModal('Replay the walkthrough?', 'Replay Walkthrough');
   if (ok) {
     try {
       localStorage.removeItem('km_walkthrough_done');
