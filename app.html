@@ -162,7 +162,7 @@
             
             <!-- Moved here to avoid crowding the top control row -->
             <button id="guidedToggle" class="ml-auto px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl transition" aria-label="Guided Learning" title="Guided Learning">
-              🎓 Guided
+              Guided
             </button>
             
           </div>
@@ -229,14 +229,14 @@
           <span>Made by</span>
           <a href="https://github.com/Bumblebee-3" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline underline-offset-2">Bumblebee-3</a>
           <span class="mx-2">•</span>
-          <a href="./dashboard" class="text-teal-400 hover:text-teal-300 underline underline-offset-2">📊 Dashboard</a>
+          <a href="./dashboard" class="text-teal-400 hover:text-teal-300 underline underline-offset-2">Dashboard</a>
         </div>
       </footer>
     </div>
 
     <!-- Guided Learning Panel -->
     <div id="guidedPanel" class="fixed right-3 bottom-3 z-40 hidden w-[340px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
-      <h3 class="text-lg font-semibold flex items-center gap-2">🎹 Guided Learning</h3>
+  <h3 class="text-lg font-semibold flex items-center gap-2">Guided Learning</h3>
       <p class="text-xs opacity-70 mb-2">Progressive, cumulative stages.</p>
       <div class="text-sm"><span id="guidedSectionLabel">Stage 1 of 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
       <div id="guidedScope" class="text-xs opacity-70">Scope: Section 1</div>
@@ -266,8 +266,8 @@
         
         <!-- Loop decision controls -->
         <div id="guidedDecision" class="ml-auto hidden items-center gap-2">
-          <button id="guidedPracticeAgainBtn" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600" title="Repeat this phase">🔁 Practice Again</button>
-          <button id="guidedPhaseContinueBtn" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="Proceed to next phase">➡ Continue</button>
+          <button id="guidedPracticeAgainBtn" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600" title="Repeat this phase">Practice Again</button>
+          <button id="guidedPhaseContinueBtn" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="Proceed to next phase">Continue</button>
         </div>
       </div>
       <!-- Next stage preview (mini timeline placeholder) -->
@@ -284,6 +284,18 @@
         <p id="guidedPromptMsg" class="text-sm opacity-90"></p>
         <div class="mt-4 flex justify-end">
           <button id="guidedPromptContinue" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Continue</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Multi-track Warning Modal -->
+    <div id="multiTrackModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
+      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
+        <h3 class="text-lg font-semibold mb-2">Multiple Instruments Detected</h3>
+  <p id="multiTrackText" class="text-sm opacity-90 whitespace-pre-line"></p>
+        <div class="mt-4 flex justify-end gap-2">
+          <button id="multiTrackCancel" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg">Cancel</button>
+          <button id="multiTrackContinue" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Continue</button>
         </div>
       </div>
     </div>

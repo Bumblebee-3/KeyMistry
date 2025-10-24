@@ -156,6 +156,12 @@ const visualLatencyInput = document.getElementById('visualLatencyOffset');
 const visualLatencyLabel = document.getElementById('visualLatencyLabel');
 let VISUAL_LATENCY = 0; // seconds; positive = advance visuals (hit earlier)
 
+// Multi-track warning modal elements
+const multiTrackModal = document.getElementById('multiTrackModal');
+const multiTrackText = document.getElementById('multiTrackText');
+const multiTrackCancel = document.getElementById('multiTrackCancel');
+const multiTrackContinue = document.getElementById('multiTrackContinue');
+
 const canvas = document.getElementById("pianoRoll");
 const ctx = canvas.getContext("2d");
 
@@ -476,6 +482,11 @@ fileInput.addEventListener("change", async (e) => {
       const safe = sanitizeTimeSignatureMeta(bytes);
       midi = new Midi(safe.buffer);
     }
+    // Warn if too many tracks (likely multiple instruments)
+    if (!(await shouldProceedWithMultiTrack(midi))) {
+      showOverlay("Loading cancelled.");
+      return;
+    }
     initFromMidi(midi);
     showOverlay(`Loaded: ${file.name}`);
 
@@ -492,7 +503,7 @@ fileInput.addEventListener("change", async (e) => {
   }
 });
 
-btnLoadPrevious?.addEventListener('click', () => {
+btnLoadPrevious?.addEventListener('click', async () => {
   try {
     const b64 = localStorage.getItem('km_last_midi_b64') || localStorage.getItem('lp_last_midi_b64');
     if (!b64) return showOverlay('No previous MIDI saved');
@@ -506,6 +517,10 @@ btnLoadPrevious?.addEventListener('click', () => {
       console.warn('[KeyMistry] Previous MIDI parse failed, applying sanitize fallback…', err);
       const safe = sanitizeTimeSignatureMeta(bytes);
       midi = new Midi(safe.buffer);
+    }
+    if (!(await shouldProceedWithMultiTrack(midi))) {
+      showOverlay("Loading cancelled.");
+      return;
     }
     initFromMidi(midi);
   const name = localStorage.getItem('km_last_midi_name') || localStorage.getItem('lp_last_midi_name') || 'Previous MIDI';
@@ -2295,6 +2310,43 @@ async function doCountdownIfNeeded() {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Warn users if a MIDI likely contains multiple instruments (more than 3 note-bearing tracks)
+function countNoteTracks(midi) {
+  try {
+    return midi?.tracks?.filter(t => Array.isArray(t.notes) && t.notes.length > 0).length || 0;
+  } catch { return 0; }
+}
+function openConfirmModal(message) {
+  return new Promise((resolve) => {
+    if (multiTrackText) multiTrackText.textContent = message;
+    multiTrackModal?.classList.remove('hidden');
+    const cleanup = () => {
+      multiTrackModal?.classList.add('hidden');
+    };
+    const onCancel = () => { cleanup(); resolve(false); };
+    const onOk = () => { cleanup(); resolve(true); };
+    multiTrackCancel?.addEventListener('click', onCancel, { once: true });
+    multiTrackContinue?.addEventListener('click', onOk, { once: true });
+  });
+}
+async function shouldProceedWithMultiTrack(midi) {
+  const noteTracks = countNoteTracks(midi);
+  if (noteTracks <= 3) return true;
+  const msg = [
+    `This MIDI appears to have ${noteTracks} instrument tracks.`,
+    '',
+    'For best results, use a solo piano MIDI. You can continue, but you may need to mute extra tracks so playback sounds correct.',
+    '',
+    'Continue loading this MIDI?'
+  ].join('\n');
+  const ok = await openConfirmModal(msg);
+  if (ok) {
+    // Gentle tip toast after continuing
+    showOverlay('Tip: Use the Mute/Solo buttons in the Tracks panel to limit to piano parts.', 2000);
+  }
+  return ok;
+}
 
 function initNoteWait() {
   const t = Tone.Transport.seconds;
