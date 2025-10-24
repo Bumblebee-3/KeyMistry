@@ -44,7 +44,8 @@
           <option value="title">Title</option>
           <option value="completion">Completion</option>
         </select>
-        <button id="resetAll" class="ml-auto px-3 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm">Reset All</button>
+        <button id="replayWalkthrough" class="ml-auto px-3 py-2 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm border border-white/10" title="Replay the tutorial in the app">Replay Walkthrough</button>
+        <button id="resetAll" class="px-3 py-2 bg-red-600 hover:bg-red-500 rounded-lg text-sm">Reset All</button>
       </div>
     </section>
 
@@ -74,6 +75,7 @@
     const emptyEl = document.getElementById('emptyState');
     const sortByEl = document.getElementById('sortBy');
     const resetAllBtn = document.getElementById('resetAll');
+  const replayBtn = document.getElementById('replayWalkthrough');
     document.getElementById('year').textContent = new Date().getFullYear();
 
     function getAllProgress() {
@@ -197,6 +199,14 @@
       }
       keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
       render();
+    });
+
+    replayBtn.addEventListener('click', () => {
+      try {
+        localStorage.removeItem('km_walkthrough_done');
+        localStorage.removeItem('km_walkthrough_last_step');
+      } catch {}
+      window.location.href = './app';
     });
 
     render();

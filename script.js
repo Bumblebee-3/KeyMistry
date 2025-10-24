@@ -161,6 +161,11 @@ const multiTrackModal = document.getElementById('multiTrackModal');
 const multiTrackText = document.getElementById('multiTrackText');
 const multiTrackCancel = document.getElementById('multiTrackCancel');
 const multiTrackContinue = document.getElementById('multiTrackContinue');
+// Walkthrough elements
+const walkthroughWelcome = document.getElementById('walkthroughWelcome');
+const walkthroughStart = document.getElementById('walkthroughStart');
+const walkthroughSkip = document.getElementById('walkthroughSkip');
+const helpWalkthroughBtn = document.getElementById('helpWalkthroughBtn');
 
 const canvas = document.getElementById("pianoRoll");
 const ctx = canvas.getContext("2d");
@@ -2347,6 +2352,87 @@ async function shouldProceedWithMultiTrack(midi) {
   }
   return ok;
 }
+
+// ===== Walkthrough (Intro.js) =====
+function closeWalkthroughWelcome() { walkthroughWelcome?.classList.add('hidden'); }
+function openWalkthroughWelcome() { walkthroughWelcome?.classList.remove('hidden'); }
+
+function getWalkthroughSteps() {
+  return [
+    { intro: "Welcome! This quick tour will show you how to upload MIDI, practice, and track progress." },
+    { element: document.querySelector('#uploadLabel'), intro: "Upload a MIDI file to start learning. Your file stays local and private." },
+    { element: document.querySelector('#tracksPanel') || document.querySelector('aside'), intro: "Each instrument track is listed here. Use mute/solo and notice the hand colors: Left = electric blue, Right = soft orange." },
+    { element: document.querySelector('#pianoRoll'), intro: "These falling tiles represent notes. When they touch the keyboard line, press that key!" },
+    { element: document.querySelector('#modeSelect'), intro: "Switch between Listen and Practice. Guided Mode teaches each section step-by-step." },
+    { element: document.querySelector('#guidedToggle'), intro: "Open Guided Learning when you’re ready for structured stages." },
+    { element: document.querySelector('#speed'), intro: "Adjust the playback tempo to slow down tricky parts." },
+    { element: document.querySelector('#openTransposeSettings'), intro: "Transpose and key settings let you shift the song to a comfortable scale." },
+    { element: document.querySelector('#progress'), intro: "Scrub through the song. Your practice stats and progress are saved automatically in your browser." },
+    { element: document.querySelector('#dashboardLink'), intro: "Open the Dashboard to review accuracy and completion over time." },
+    { intro: "You’re all set! Upload a song and start mastering piano." }
+  ];
+}
+
+function startWalkthrough() {
+  if (typeof introJs !== 'function') {
+    console.warn('Intro.js not loaded');
+    return;
+  }
+  const intro = introJs();
+  intro.setOptions({
+    steps: getWalkthroughSteps(),
+    showProgress: true,
+    exitOnOverlayClick: true,
+    disableInteraction: false,
+    nextLabel: 'Next',
+    prevLabel: 'Back',
+    doneLabel: 'Done',
+    hidePrev: false,
+    hideNext: false,
+  });
+  intro.onchange(function() {
+    try { localStorage.setItem('km_walkthrough_last_step', String(this._currentStep || 0)); } catch {}
+  });
+  const setDone = () => { try { localStorage.setItem('km_walkthrough_done', 'true'); } catch {} };
+  intro.oncomplete(setDone);
+  intro.onexit(setDone);
+  intro.start();
+}
+
+function maybeAutoStartWalkthrough() {
+  try {
+    const done = localStorage.getItem('km_walkthrough_done') === 'true';
+    if (!done) {
+      openWalkthroughWelcome();
+    }
+  } catch { /* ignore */ }
+}
+
+// Wire welcome modal
+walkthroughStart?.addEventListener('click', () => {
+  closeWalkthroughWelcome();
+  // slight delay to ensure layout is stable
+  setTimeout(startWalkthrough, 200);
+});
+walkthroughSkip?.addEventListener('click', () => {
+  closeWalkthroughWelcome();
+  try { localStorage.setItem('km_walkthrough_done', 'true'); } catch {}
+});
+
+// Replay button
+helpWalkthroughBtn?.addEventListener('click', async () => {
+  const ok = await openConfirmModal('Replay the walkthrough?');
+  if (ok) {
+    try {
+      localStorage.removeItem('km_walkthrough_done');
+      localStorage.removeItem('km_walkthrough_last_step');
+    } catch {}
+    openWalkthroughWelcome();
+  }
+});
+
+// Auto-start on first load once UI has initialized
+window.addEventListener('load', () => setTimeout(maybeAutoStartWalkthrough, 400));
 
 function initNoteWait() {
   const t = Tone.Transport.seconds;
