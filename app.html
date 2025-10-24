@@ -235,11 +235,25 @@
     </div>
 
     <!-- Guided Learning Panel -->
-    <div id="guidedPanel" class="fixed right-3 bottom-3 z-40 hidden w-[320px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
+    <div id="guidedPanel" class="fixed right-3 bottom-3 z-40 hidden w-[340px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
       <h3 class="text-lg font-semibold flex items-center gap-2">🎹 Guided Learning</h3>
-      <p class="text-xs opacity-70 mb-2">Master each section step by step.</p>
-      <div class="text-sm"><span id="guidedSectionLabel">Section 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
+      <p class="text-xs opacity-70 mb-2">Progressive, cumulative stages.</p>
+      <div class="text-sm"><span id="guidedSectionLabel">Stage 1 of 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
+      <div id="guidedScope" class="text-xs opacity-70">Scope: Section 1</div>
       <div id="guidedHint" class="text-xs text-white/70 mt-1">Now practice your left hand.</div>
+      <!-- Overall progress -->
+      <div class="mt-2">
+        <div class="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden">
+          <div id="guidedOverallBar" class="h-full bg-emerald-500" style="width:0%"></div>
+        </div>
+        <div id="guidedOverallLabel" class="text-[11px] opacity-80 mt-1">0% overall</div>
+      </div>
+      <!-- Step bar -->
+      <div class="mt-2 flex items-center gap-1 text-[11px]">
+        <span id="guidedStepLeft" class="px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700">Left</span>
+        <span id="guidedStepRight" class="px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700">Right</span>
+        <span id="guidedStepBoth" class="px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700">Both</span>
+      </div>
       <div class="mt-2">
         <div class="w-full h-2 rounded-full bg-gray-800 overflow-hidden">
           <div id="guidedAccBar" class="h-full bg-blue-500" style="width:0%"></div>
@@ -247,11 +261,20 @@
         <div id="guidedAccLabel" class="text-xs opacity-80 mt-1">0% accuracy</div>
       </div>
       <div class="mt-3 flex items-center gap-2">
-        <button id="guidedPrevSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Section</button>
-        <button id="guidedNextSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Section</button>
-        <button id="guidedUnderstoodBtn" class="ml-auto px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="I’ve understood this part — move on">Understood</button>
-        <button id="guidedNextStageBtn" class="px-3 py-1.5 text-xs rounded-lg bg-emerald-600 hover:bg-emerald-500 hidden" title="Proceed to next phase">Next</button>
+        <button id="guidedPrevSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Stage</button>
+        <button id="guidedNextSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Stage</button>
+        
+        <!-- Loop decision controls -->
+        <div id="guidedDecision" class="ml-auto hidden items-center gap-2">
+          <button id="guidedPracticeAgainBtn" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600" title="Repeat this phase">🔁 Practice Again</button>
+          <button id="guidedPhaseContinueBtn" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="Proceed to next phase">➡ Continue</button>
+        </div>
       </div>
+      <!-- Next stage preview (mini timeline placeholder) -->
+      <div id="guidedPreview" class="mt-2 h-8 rounded-lg bg-gray-800/60 border border-gray-700 flex items-center justify-center text-[10px] opacity-75">
+        Next Stage Preview
+      </div>
+      <!-- Config row removed: fixed 20s sections; no strict mode or threshold -->
     </div>
 
     <!-- Guided Prompt Modal -->

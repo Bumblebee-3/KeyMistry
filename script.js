@@ -120,7 +120,7 @@ function sanitizeTimeSignatureMeta(u8) {
 // Guided UI elements
 const guidedToggleBtn = document.getElementById('guidedToggle');
 const guidedPanel = document.getElementById('guidedPanel');
-const guidedSectionLabel = document.getElementById('guidedSectionLabel');
+const guidedSectionLabel = document.getElementById('guidedSectionLabel'); // will display "Stage X of N"
 const guidedStageLabel = document.getElementById('guidedStageLabel');
 const guidedAccBar = document.getElementById('guidedAccBar');
 const guidedAccLabel = document.getElementById('guidedAccLabel');
@@ -132,6 +132,23 @@ const guidedHint = document.getElementById('guidedHint');
 const guidedPrompt = document.getElementById('guidedPrompt');
 const guidedPromptMsg = document.getElementById('guidedPromptMsg');
 const guidedPromptContinue = document.getElementById('guidedPromptContinue');
+// Guided decision and step UI
+const guidedDecision = document.getElementById('guidedDecision');
+const guidedPracticeAgainBtn = document.getElementById('guidedPracticeAgainBtn');
+const guidedPhaseContinueBtn = document.getElementById('guidedPhaseContinueBtn');
+const guidedStepLeft = document.getElementById('guidedStepLeft');
+const guidedStepRight = document.getElementById('guidedStepRight');
+const guidedStepBoth = document.getElementById('guidedStepBoth');
+const guidedScopeEl = document.getElementById('guidedScope');
+const guidedOverallBar = document.getElementById('guidedOverallBar');
+const guidedOverallLabel = document.getElementById('guidedOverallLabel');
+// Guided config inputs
+// Section length UI removed; fixed to 20s
+const guidedSectionLenInput = null;
+// Strict mode and threshold UI removed
+const guidedStrictToggle = null;
+const guidedAccThresholdInput = null;
+const guidedAccThresholdLabel = null;
 
 const effectiveKeyLabel = document.getElementById('effectiveKeyLabel');
 // Optional visual latency fine-tuning
@@ -181,10 +198,13 @@ const app = {
   guided: {
     enabled: false,
     hasSeparateHands: false,
-    sections: [], // {label, start, end, mastery:{left,right,both}}
+    sections: [], // time slices only: {label, start, end}
+    stages: [],   // cumulative learning stages: {index, mastery:{left,right,both}, accByStage:{...}, lastTempo:number}
     currentIndex: 0,
     stage: 'left', // 'left'|'right'|'both'
     progressKey: null, // localStorage key
+    sectionLenSec: 20,
+  // strictMode/accThreshold removed from UI; continue is always available
   },
   midi: undefined,
   duration: 0,
@@ -224,7 +244,7 @@ const app = {
     stats: { total: 0, correct: 0, misses: [], timings: [] },
     groupTimeById: new Map(),
     inputOffsetSec: 0, // calibration: positive means user's input arrives late (so shift forward)
-    hitWindowSec: 0.25, // acceptance window for early/late hits (±)
+  hitWindowSec: 0.30, // acceptance window for early/late hits (±)
     chordWindowSec: 0.06, // grouping window for chords
     _waitTimeout: null,
     autoContinue: false, // if true, auto-continue after grace when user doesn't complete chord
@@ -436,6 +456,10 @@ function applyPrefsToUI() {
 
   app.midiIO.inId = loadPref('midiInId', app.midiIO.inId);
   app.midiIO.outId = loadPref('midiOutId', app.midiIO.outId);
+
+  // Guided config: section length fixed to 20s (no UI); strict/threshold removed
+  const glen = 20;
+  app.guided.sectionLenSec = glen;
 }
 
 fileInput.addEventListener("change", async (e) => {
@@ -566,22 +590,32 @@ function initFromMidi(midi) {
 
   buildPracticeGroups();
 
-  // Guided: initialize sections (~20s each) and detection of hand separation
+  // Guided: initialize time sections (~20s each) and detection of hand separation
   try {
     const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
-    app.guided.progressKey = `km_progress_${name}`;
+    const base = String(name).replace(/\.[^/.]+$/, '').trim();
+    const normalized = base.toLowerCase();
+    app.guided.progressKey = `km_progress_${normalized}`;
   } catch { app.guided.progressKey = null; }
 
   const hasTwoOrMore = (app.tracks?.length || 0) > 1;
   app.guided.hasSeparateHands = hasTwoOrMore;
-  const secLen = 20; // seconds
+  const secLen = 20; // fixed
+  app.guided.sectionLenSec = secLen;
   const count = Math.max(1, Math.ceil(app.duration / secLen));
   app.guided.sections = Array.from({length: count}, (_, i) => {
     const start = i * secLen;
     const end = Math.min(app.duration, (i + 1) * secLen);
-    return { label: `Section ${i+1}`, start, end, mastery: { left: !hasTwoOrMore, right: !hasTwoOrMore, both: false }, accByStage: { left: 0, right: 0, both: 0 }, understoodByStage: { left: false, right: false, both: false }, lastTempo: 1 };
+    return { label: `Section ${i+1}`, start, end };
   });
-  app.guided.currentIndex = 0;
+  // Build cumulative-learning stages (one per section)
+  app.guided.stages = Array.from({length: count}, (_, i) => ({
+    index: i+1,
+    mastery: { left: !hasTwoOrMore, right: !hasTwoOrMore, both: false },
+    accByStage: { left: 0, right: 0, both: 0 },
+    lastTempo: 1
+  }));
+  app.guided.currentIndex = 0; // current stage index
   app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
   restoreGuidedProgress();
   updateGuidedUI();
@@ -692,17 +726,31 @@ function restoreGuidedProgress() {
     const raw = localStorage.getItem(app.guided.progressKey);
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (!data?.sections) return;
-    // merge mastery flags for matching indices
-    for (let i = 0; i < Math.min(app.guided.sections.length, Object.keys(data.sections).length); i++) {
-      const s = app.guided.sections[i];
-      const saved = data.sections[String(i+1)];
-      if (saved) {
-        s.mastery = { left: !!saved.left, right: !!saved.right, both: !!saved.both };
-        if (saved.accByStage) s.accByStage = { left: saved.accByStage.left||0, right: saved.accByStage.right||0, both: saved.accByStage.both||0 };
-        if (saved.understoodByStage) s.understoodByStage = { left: !!saved.understoodByStage.left, right: !!saved.understoodByStage.right, both: !!saved.understoodByStage.both };
-        if (typeof saved.lastTempo === 'number') s.lastTempo = clamp(saved.lastTempo, 0.5, 1.5);
-      }
+    // Preferred: stages array (cumulative learning)
+    if (Array.isArray(data.stages) && data.stages.length) {
+      const n = Math.min(app.guided.sections.length, data.stages.length);
+      app.guided.stages = Array.from({length: app.guided.sections.length}, (_, i) => {
+        const saved = i < n ? data.stages[i] : null;
+        return {
+          index: i+1,
+          mastery: saved ? { left: !!saved.left, right: !!saved.right, both: !!saved.both } : { left: !app.guided.hasSeparateHands, right: !app.guided.hasSeparateHands, both: false },
+          accByStage: saved && saved.accByStage ? { left: saved.accByStage.left||0, right: saved.accByStage.right||0, both: saved.accByStage.both||0 } : { left:0,right:0,both:0 },
+          lastTempo: saved && typeof saved.lastTempo === 'number' ? clamp(saved.lastTempo, 0.5, 1.5) : 1
+        };
+      });
+      return;
+    }
+    // Backward-compat: legacy per-section structure
+    if (data?.sections) {
+      app.guided.stages = app.guided.sections.map((_, i) => {
+        const saved = data.sections[String(i+1)] || {};
+        return {
+          index: i+1,
+          mastery: { left: !!saved.left, right: !!saved.right, both: !!saved.both },
+          accByStage: saved.accByStage || { left:0,right:0,both:0 },
+          lastTempo: typeof saved.lastTempo === 'number' ? clamp(saved.lastTempo, 0.5, 1.5) : 1
+        };
+      });
     }
   } catch {}
 }
@@ -710,29 +758,34 @@ function restoreGuidedProgress() {
 function persistGuidedProgress() {
   if (!app.guided.progressKey) return;
   const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
-  const sections = {};
-  app.guided.sections.forEach((s, idx) => {
-    sections[String(idx+1)] = {
-      left: !!s.mastery.left,
-      right: !!s.mastery.right,
-      both: !!s.mastery.both,
-      accByStage: { ...s.accByStage },
-      understoodByStage: { ...s.understoodByStage },
-      lastTempo: s.lastTempo || 1
-    };
-  });
+  // New: stages array for cumulative learning
+  const stages = app.guided.stages.map(st => ({
+    stage: st.index,
+    left: !!st.mastery.left,
+    right: !!st.mastery.right,
+    both: !!st.mastery.both,
+    accByStage: { ...st.accByStage },
+    lastTempo: st.lastTempo || 1
+  }));
   const separate = !!app.guided.hasSeparateHands;
-  const totalStages = app.guided.sections.reduce((a,s)=> a + (separate ? 3 : 1), 0);
-  const doneStages = app.guided.sections.reduce((a,s)=> {
-    if (separate) return a + (s.mastery.left?1:0) + (s.mastery.right?1:0) + (s.mastery.both?1:0);
-    // Single-track: only 'both' counts toward completion
-    return a + (s.mastery.both ? 1 : 0);
+  const totalPhases = (app.guided.stages.length || 0) * (separate ? 3 : 1);
+  const completedPhases = app.guided.stages.reduce((a, st) => {
+    if (separate) return a + (st.mastery.left?1:0) + (st.mastery.right?1:0) + (st.mastery.both?1:0);
+    return a + (st.mastery.both ? 1 : 0);
   }, 0);
-  const completion = totalStages ? Math.round((doneStages / totalStages) * 100) : 0;
+  const completion = totalPhases ? Math.round((completedPhases / totalPhases) * 100) : 0;
   const payload = {
     title: name.replace(/\.[^/.]+$/, ''),
     separateHands: !!app.guided.hasSeparateHands,
-    sections,
+    stages,
+    // Keep legacy 'sections' for older dashboards (best-effort projection)
+    sections: Object.fromEntries(app.guided.stages.map((st, i) => [String(i+1), {
+      left: !!st.mastery.left,
+      right: !!st.mastery.right,
+      both: !!st.mastery.both,
+      accByStage: { ...st.accByStage },
+      lastTempo: st.lastTempo || 1
+    }])),
     completion,
     lastPlayed: new Date().toISOString(),
   };
@@ -741,47 +794,75 @@ function persistGuidedProgress() {
 
 function updateGuidedUI() {
   if (!guidedPanel) return;
-  const sec = app.guided.sections[app.guided.currentIndex];
-  if (!sec) return;
-  guidedSectionLabel && (guidedSectionLabel.textContent = sec.label);
+  const stageIdx = app.guided.currentIndex;
+  const totalStages = app.guided.sections.length;
+  const stage = app.guided.stages[stageIdx];
+  if (!stage) return;
+  const endTime = getStageEndTime(stageIdx);
+  const scopeLabel = stageIdx === 0 ? 'Section 1' : `Sections 1–${stageIdx+1}`;
+  if (guidedSectionLabel) guidedSectionLabel.textContent = `Stage ${stageIdx+1} of ${totalStages}`;
   guidedStageLabel && (guidedStageLabel.textContent = (app.guided.stage === 'left' ? 'Left Hand' : app.guided.stage === 'right' ? 'Right Hand' : 'Both Hands'));
   if (guidedHint) {
     guidedHint.textContent = app.guided.stage === 'left' ? 'Now practice your left hand.' : app.guided.stage === 'right' ? 'Now practice your right hand.' : 'Try combining both hands!';
   }
-  // compute accuracy from current stats
+  if (guidedScopeEl) guidedScopeEl.textContent = `Scope: ${scopeLabel}`;
+  // Compute accuracy to display:
+  // 1) If current stats exist, show live percent
+  // 2) Else, show last saved accuracy for this section/stage (persisted)
+  // 3) Else, fall back to last loop percent or 0
   const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
+  const saved = (stage.accByStage && typeof stage.accByStage[app.guided.stage] === 'number') ? stage.accByStage[app.guided.stage] : null;
   const fallback = app.practice.lastLoopAccPercent || 0;
-  const percent = total ? Math.round((correct / total) * 100) : fallback;
+  const percent = total ? Math.round((correct / total) * 100) : (saved != null ? Math.round(saved) : fallback);
   if (guidedAccBar) guidedAccBar.style.width = `${percent}%`;
   if (guidedAccLabel) {
-    const s = app.guided.sections[app.guided.currentIndex];
     const mk = (ok) => ok ? '✅' : '🔄';
-    const status = app.guided.hasSeparateHands ? `Left: ${mk(!!s.mastery.left)} | Right: ${mk(!!s.mastery.right)} | Both: ${mk(!!s.mastery.both)}` : `Both: ${mk(!!s.mastery.both)}`;
+    const status = app.guided.hasSeparateHands ? `Left: ${mk(!!stage.mastery.left)} | Right: ${mk(!!stage.mastery.right)} | Both: ${mk(!!stage.mastery.both)}` : `Both: ${mk(!!stage.mastery.both)}`;
     guidedAccLabel.textContent = `${percent}% accuracy — ${status}`;
   }
   const mastered = isStageMastered(app.guided.currentIndex, app.guided.stage);
   if (guidedNextStageBtn) guidedNextStageBtn.classList.toggle('hidden', !mastered);
+  // Update step pills
+  if (guidedStepLeft && guidedStepRight && guidedStepBoth) {
+    const setPill = (el, active, done) => {
+      el.classList.remove('bg-gray-800','border-gray-700','bg-blue-600','bg-emerald-600');
+      el.classList.add('border');
+      if (done) el.classList.add('bg-emerald-600');
+      else if (active) el.classList.add('bg-blue-600');
+      else el.classList.add('bg-gray-800','border-gray-700');
+    };
+    setPill(guidedStepLeft, app.guided.stage==='left', !!stage.mastery.left);
+    setPill(guidedStepRight, app.guided.stage==='right', !!stage.mastery.right);
+    setPill(guidedStepBoth, app.guided.stage==='both', !!stage.mastery.both);
+  }
+  // Update overall progress
+  const separate = !!app.guided.hasSeparateHands;
+  const totalPhases = (app.guided.stages.length || 0) * (separate ? 3 : 1);
+  const completedPhases = app.guided.stages.reduce((a, st) => {
+    if (separate) return a + (st.mastery.left?1:0) + (st.mastery.right?1:0) + (st.mastery.both?1:0);
+    return a + (st.mastery.both ? 1 : 0);
+  }, 0);
+  const overallPct = totalPhases ? Math.round((completedPhases / totalPhases) * 100) : 0;
+  if (guidedOverallBar) guidedOverallBar.style.width = `${overallPct}%`;
+  if (guidedOverallLabel) guidedOverallLabel.textContent = `${overallPct}% overall`;
 }
 
 function isStageMastered(index, stage) {
-  const sec = app.guided.sections[index];
-  if (!sec) return false;
-  return !!sec.mastery?.[stage];
+  const st = app.guided.stages[index];
+  if (!st) return false;
+  return !!st.mastery?.[stage];
 }
 
-function markStageIfThreshold() {
-  // threshold: >=90% accuracy within current looped section
+function markStageOnContinue() {
+  // User chose to continue; record last accuracy and mark mastered unconditionally
   const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
-  const percent = total ? Math.round((correct / total) * 100) : 0;
-  if (percent >= 90) {
-    const sec = app.guided.sections[app.guided.currentIndex];
-    if (sec) {
-      // Record accuracy for this stage
-      if (sec.accByStage) sec.accByStage[app.guided.stage] = percent;
-      sec.mastery[app.guided.stage] = true;
-      persistGuidedProgress();
-      updateGuidedUI();
-    }
+  const percent = total ? Math.round((correct / total) * 100) : (app.practice.lastLoopAccPercent || 0);
+  const st = app.guided.stages[app.guided.currentIndex];
+  if (st) {
+    if (st.accByStage) st.accByStage[app.guided.stage] = percent;
+    st.mastery[app.guided.stage] = true;
+    persistGuidedProgress();
+    updateGuidedUI();
   }
 }
 
@@ -805,50 +886,101 @@ function evaluateLoopPerformance() {
   app.practice.stats.correct = correct;
   const percent = expected ? Math.round((correct / expected) * 100) : 0;
   app.practice.lastLoopAccPercent = percent;
-  const sec = app.guided.sections[app.guided.currentIndex];
-  if (sec) {
-    if (sec.accByStage) sec.accByStage[app.guided.stage] = percent;
+  const st = app.guided.stages[app.guided.currentIndex];
+  if (st) {
+    if (st.accByStage) st.accByStage[app.guided.stage] = percent;
   }
   // Adaptive pacing
   const currentFactor = parseFloat(speed.value || '1') || 1;
-  if (percent >= 90) {
+  const thrPct = 90; // hidden default for tempo nudge
+  if (percent >= thrPct) {
     const next = clamp(currentFactor + 0.1, 1.0, 1.3);
     if (next > currentFactor + 1e-6) {
       speed.value = String(next);
       speed.dispatchEvent(new Event('input'));
       showOverlay(`Great job! Increasing pace slightly… (${Math.round(next*100)}%)`, 1200);
     }
-    if (sec) sec.lastTempo = next;
+    if (st) st.lastTempo = next;
     // Also mark stage mastered to unlock Next, but don't auto-advance
-    if (sec) sec.mastery[app.guided.stage] = true;
+    if (st) st.mastery[app.guided.stage] = true;
     persistGuidedProgress();
-  } else if (percent < 80 && currentFactor > 1.0) {
+  } else if (percent < Math.max(80, thrPct - 10) && currentFactor > 1.0) {
     speed.value = '1';
     speed.dispatchEvent(new Event('input'));
-    if (sec) sec.lastTempo = 1;
+    if (st) st.lastTempo = 1;
     showOverlay('Tempo back to normal for focus', 900);
     persistGuidedProgress();
-  } else if (sec) {
-    sec.lastTempo = currentFactor;
+  } else if (st) {
+    st.lastTempo = currentFactor;
     persistGuidedProgress();
   }
   // Prepare for next loop iteration
   app.practice.satisfiedGroups.clear();
   updateGuidedUI();
+  // Show guided decision buttons with encouraging toast
+  if (percent >= 98) showOverlay(`🔥 Accuracy: ${percent}% – Ready to continue?`, 1400);
+  else showOverlay(`🎯 Accuracy: ${percent}%`, 1200);
+  showGuidedDecision(percent);
 }
 
-function setGuidedLoopToCurrentSection() {
-  const sec = app.guided.sections[app.guided.currentIndex];
-  if (!sec) return;
+// Guided loop decision controls
+function showGuidedDecision(percent) {
+  if (!guidedDecision) return;
+  guidedDecision.classList.remove('hidden');
+  const text = (app.guided.stage==='left') ? '➡ Continue to Right Hand' : (app.guided.stage==='right') ? '➡ Continue to Both Hands' : '➡ Continue to Next Section';
+  if (guidedPhaseContinueBtn) guidedPhaseContinueBtn.textContent = text;
+  // Continue is always available; no strict gating
+  if (guidedPhaseContinueBtn) {
+    guidedPhaseContinueBtn.disabled = false;
+    guidedPhaseContinueBtn.classList.remove('opacity-60');
+  }
+}
+
+guidedPracticeAgainBtn?.addEventListener('click', () => {
+  guidedDecision?.classList.add('hidden');
+  // Keep same stage; loop already restarts
+});
+
+guidedPhaseContinueBtn?.addEventListener('click', () => {
+  guidedDecision?.classList.add('hidden');
+  markStageOnContinue();
+  if (!app.guided.hasSeparateHands) {
+    guidedNextSecBtn?.click();
+    return;
+  }
+  if (app.guided.stage === 'left') app.guided.stage = 'right';
+  else if (app.guided.stage === 'right') app.guided.stage = 'both';
+  else {
+    guidedNextSecBtn?.click();
+    return;
+  }
+  startGuidedPracticeCycle();
+  persistGuidedProgress();
+});
+
+function getStageEndTime(index) {
+  const i = Math.max(0, Math.min(index, app.guided.sections.length - 1));
+  const lastSec = app.guided.sections[i];
+  return lastSec ? lastSec.end : 0;
+}
+
+function setGuidedLoopToCurrentStage() {
+  const end = getStageEndTime(app.guided.currentIndex);
   app.practice.loop.enabled = true;
-  app.practice.loop.start = sec.start;
-  app.practice.loop.end = sec.end;
+  app.practice.loop.start = 0;
+  app.practice.loop.end = end;
   if (loopToggle) loopToggle.checked = true;
-  if (loopStartInput) loopStartInput.value = String(Math.round(sec.start * 10) / 10);
-  if (loopEndInput) loopEndInput.value = String(Math.round(sec.end * 10) / 10);
+  if (loopStartInput) loopStartInput.value = String(0);
+  if (loopEndInput) loopEndInput.value = String(Math.round(end * 10) / 10);
   savePref('loopEnabled', true);
-  savePref('loopStart', sec.start);
-  savePref('loopEnd', sec.end);
+  savePref('loopStart', 0);
+  savePref('loopEnd', end);
+  // Ensure transport starts at the beginning of this section
+  try {
+    Tone.Transport.seconds = 0;
+    updateTimeUI(0);
+    clearLoopTimer();
+  } catch {}
 }
 
 function applyGuidedStageHand() {
@@ -869,12 +1001,13 @@ function startGuidedPracticeCycle() {
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
   clearEarlyLookaheadState();
   updateGuidedUI();
-  setGuidedLoopToCurrentSection();
+  setGuidedLoopToCurrentStage();
   applyGuidedStageHand();
   // Restore last tempo used for this section
-  const sec = app.guided.sections[app.guided.currentIndex];
-  const factor = clamp(Number(sec?.lastTempo) || 1, 0.5, 1.5);
+  const st = app.guided.stages[app.guided.currentIndex];
+  const factor = clamp(Number(st?.lastTempo) || 1, 0.5, 1.5);
   if (speed) { speed.value = String(factor); speed.dispatchEvent(new Event('input')); }
+  guidedDecision?.classList.add('hidden');
   rescheduleTransport();
 }
 
@@ -901,10 +1034,16 @@ guidedPromptContinue?.addEventListener('click', () => {
   guidedPrompt?.classList.add('hidden');
 });
 
+// No strict gating; keep for compatibility with previous code paths
+function markStageIfThreshold() {
+  // Intentionally empty: Continue is always enabled
+}
+
 guidedPrevSecBtn?.addEventListener('click', () => {
   if (app.guided.currentIndex > 0) {
     app.guided.currentIndex--;
     app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+    guidedDecision?.classList.add('hidden');
     startGuidedPracticeCycle();
     persistGuidedProgress();
   }
@@ -913,15 +1052,17 @@ guidedNextSecBtn?.addEventListener('click', () => {
   if (app.guided.currentIndex < app.guided.sections.length - 1) {
     app.guided.currentIndex++;
     app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+    guidedDecision?.classList.add('hidden');
     startGuidedPracticeCycle();
     persistGuidedProgress();
   }
 });
 
 guidedUnderstoodBtn?.addEventListener('click', () => {
-  const sec = app.guided.sections[app.guided.currentIndex];
-  if (sec) {
-    sec.understoodByStage[app.guided.stage] = true;
+  const st = app.guided.stages[app.guided.currentIndex];
+  if (st) {
+    if (!st.understoodByStage) st.understoodByStage = { left: false, right: false, both: false };
+    st.understoodByStage[app.guided.stage] = true;
   }
   // If current stats meet threshold, mark stage as mastered
   markStageIfThreshold();
@@ -979,12 +1120,18 @@ function scheduleIfNeeded() {
         sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
       }, time);
 
-      Tone.Transport.schedule(() => {
+      // Schedule visual key events on the draw timeline to sync with audio clock.
+      // Only auto-highlight keys during Listen mode; in Practice mode we want
+      // highlights to reflect the user's actual key presses exclusively.
+      Tone.Draw.schedule(() => {
+        if (modeSelect?.value !== 'listen') return;
         handleNoteOnVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
       }, time);
 
-      Tone.Transport.schedule(() => {
-        handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
+      Tone.Draw.schedule(() => {
+        if (modeSelect?.value === 'listen') {
+          handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
+        }
         const offDelay = app.midiIO.tailMs / 1000;
         const midiOut = applyTranspose(n.midi);
         setTimeout(() => sendNoteOff(midiOut, t.channel), Math.max(0, offDelay * 1000));
@@ -1074,6 +1221,17 @@ btnPlay.addEventListener("click", async () => {
   } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   scheduleIfNeeded();
+  // If loop is enabled (e.g., in Guided), start from loop.start when outside the window
+  try {
+    if (app.practice?.loop?.enabled) {
+      const { start, end } = app.practice.loop;
+      const t = Tone.Transport.seconds || 0;
+      if (!(t >= start && t < end)) {
+        Tone.Transport.seconds = start;
+        updateTimeUI(start);
+      }
+    }
+  } catch {}
   await doCountdownIfNeeded();
 
   Tone.Transport.start(`+${START_DELAY}`);
@@ -1200,6 +1358,9 @@ tailMsInput?.addEventListener('input', () => {
   if (tailMsLabel) tailMsLabel.textContent = `${v}ms`;
 });
 
+// Guided config handlers
+// Section length control removed; always 20s
+
 function showMidiTab() {
   if (!midiSettingsTab || !visualSettingsTab || !settingsTabMidi || !settingsTabVisuals) return;
   midiSettingsTab.classList.remove('hidden');
@@ -1259,6 +1420,17 @@ fsPlayPause?.addEventListener('click', async () => {
     fsPlayPauseIcon.textContent = 'Play';
   } else {
     scheduleIfNeeded();
+    // Ensure we start inside loop window when enabled
+    try {
+      if (app.practice?.loop?.enabled) {
+        const { start, end } = app.practice.loop;
+        const t = Tone.Transport.seconds || 0;
+        if (!(t >= start && t < end)) {
+          Tone.Transport.seconds = start;
+          updateTimeUI(start);
+        }
+      }
+    } catch {}
 
     const atStart = (Tone.Transport.seconds || 0) < 0.02;
     Tone.Transport.start(atStart ? `+${START_DELAY}` : undefined);
@@ -1509,9 +1681,12 @@ function drawNotes(currentTime) {
         }
       }
 
+      // Only pre-glow upcoming keys when actually playing in Listen mode
       if (start - currentTime <= 0.4 && start - currentTime > 0) {
         app.upcomingKeys.add(visMidi);
-        startKeyGlow(visMidi, true, col);
+        if (modeSelect?.value === 'listen' && Tone.Transport.state === 'started') {
+          startKeyGlow(visMidi, true, col);
+        }
       }
 
       if (LANDING_FLASH_ENABLED) {
@@ -1602,7 +1777,7 @@ function clearLoopTimer() {
   loop._pending = false;
 }
 
-const BASE_TOLERANCE = 0.25; 
+const BASE_TOLERANCE = 0.30; 
 
 async function initMIDI(forceRefresh = false) {
   if (!navigator.requestMIDIAccess) {

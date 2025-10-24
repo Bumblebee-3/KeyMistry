@@ -84,32 +84,43 @@
         try {
           const data = JSON.parse(localStorage.getItem(key));
           if (!data || typeof data !== 'object') continue;
-          const sections = data.sections || {};
           const separate = !!data.separateHands;
-          let stageCount = 0;
-          let stagesDone = 0;
-          Object.keys(sections).forEach(idx => {
-            const s = sections[idx];
-            if (!s) return;
-            if (separate) {
-              const flags = [!!s.left, !!s.right, !!s.both];
-              stageCount += 3;
-              stagesDone += flags.filter(Boolean).length;
-            } else {
-              stageCount += 1;
-              stagesDone += !!s.both ? 1 : 0;
+          let totalPhases = 0;
+          let completedPhases = 0;
+          // Prefer new stages array
+          if (Array.isArray(data.stages) && data.stages.length) {
+            totalPhases = data.stages.length * (separate ? 3 : 1);
+            for (const st of data.stages) {
+              if (separate) {
+                completedPhases += (st.left?1:0) + (st.right?1:0) + (st.both?1:0);
+              } else {
+                completedPhases += (st.both?1:0);
+              }
             }
-          });
-          const computed = Math.round((stagesDone / Math.max(1, stageCount)) * 100);
+          } else {
+            // Legacy sections fallback
+            const sections = data.sections || {};
+            Object.keys(sections).forEach(idx => {
+              const s = sections[idx];
+              if (!s) return;
+              if (separate) {
+                totalPhases += 3;
+                completedPhases += (s.left?1:0) + (s.right?1:0) + (s.both?1:0);
+              } else {
+                totalPhases += 1;
+                completedPhases += (s.both?1:0);
+              }
+            });
+          }
+          const computed = Math.round((completedPhases / Math.max(1, totalPhases)) * 100);
           items.push({
             key,
             title: data.title || key.replace('km_progress_', ''),
             // Always compute completion locally to avoid stale/buggy saved values
             completion: computed,
             lastPlayed: data.lastPlayed ? new Date(data.lastPlayed) : new Date(0),
-            sections,
-            stagesDone,
-            stageCount
+            phasesDone: completedPhases,
+            phasesTotal: totalPhases
           });
         } catch {}
       }
@@ -118,6 +129,21 @@
 
     function render() {
       let items = getAllProgress();
+      // Deduplicate entries that represent the same song title (case/extension-insensitive)
+      const byTitle = new Map();
+      const norm = (t) => (t || '').toString().replace(/\.[^/.]+$/, '').trim().toLowerCase();
+      for (const it of items) {
+        const k = norm(it.title);
+        const prev = byTitle.get(k);
+        if (!prev) byTitle.set(k, it);
+        else {
+          // Prefer newer lastPlayed, then higher completion
+          if ((it.lastPlayed > prev.lastPlayed) || (it.completion > prev.completion)) {
+            byTitle.set(k, it);
+          }
+        }
+      }
+      items = Array.from(byTitle.values());
       const sortBy = sortByEl.value;
       if (sortBy === 'recent') items.sort((a,b) => b.lastPlayed - a.lastPlayed);
       else if (sortBy === 'title') items.sort((a,b) => a.title.localeCompare(b.title));
@@ -144,7 +170,7 @@
             <div class="h-2 w-full rounded-full bg-white/10 overflow-hidden">
               <div class="h-full bg-blue-600" style="width:${item.completion}%"></div>
             </div>
-            <div class="mt-1 text-xs text-white/80">${item.completion}% complete • ${item.stagesDone}/${item.stageCount} stages</div>
+            <div class="mt-1 text-xs text-white/80">${item.completion}% complete • ${item.phasesDone}/${item.phasesTotal} phases</div>
           </div>
         `;
         cardsEl.appendChild(card);
