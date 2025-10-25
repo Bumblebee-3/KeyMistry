@@ -120,6 +120,7 @@ function sanitizeTimeSignatureMeta(u8) {
 // Guided UI elements
 const guidedToggleBtn = document.getElementById('guidedToggle');
 const guidedPanel = document.getElementById('guidedPanel');
+const guidedPanelHeader = document.getElementById('guidedPanelHeader');
 const guidedSectionLabel = document.getElementById('guidedSectionLabel'); // will display "Stage X of N"
 const guidedStageLabel = document.getElementById('guidedStageLabel');
 const guidedAccBar = document.getElementById('guidedAccBar');
@@ -1138,6 +1139,10 @@ function startGuidedPracticeCycle() {
 guidedToggleBtn?.addEventListener('click', () => {
   app.guided.enabled = !app.guided.enabled;
   guidedPanel?.classList.toggle('hidden', !app.guided.enabled);
+  // When opening, ensure custom position (if saved) is applied and z-index stays above fullscreen overlay
+  if (app.guided.enabled) {
+    try { applyGuidedPanelSavedPosition(); } catch {}
+  }
   if (app.guided.enabled) {
     // Prompt depending on tracks
     if (guidedPrompt && guidedPromptMsg) {
@@ -1239,7 +1244,7 @@ function scheduleIfNeeded() {
       Tone.Transport.schedule((schedTime) => {
         if (token !== app.renderToken) return; // stale schedule, abort
         const midiOut = applyTranspose(n.midi);
-        if (shouldUseLocalAudio() && synth) {
+        if (shouldUseLocalAudio() && synth && modeSelect?.value === 'listen') {
           const dur = Math.max(0.02, Number(n.duration) || 0);
           synth.triggerAttackRelease(
             Tone.Frequency(midiOut, "midi").toFrequency(),
@@ -1248,8 +1253,10 @@ function scheduleIfNeeded() {
             n.velocity
           );
         }
-
-        sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
+        // Only send scheduled playback to external MIDI in Listen mode
+        if (modeSelect?.value === 'listen') {
+          sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
+        }
       }, time);
 
       // Schedule visual key events on the draw timeline to sync with audio clock.
@@ -1266,9 +1273,12 @@ function scheduleIfNeeded() {
         if (modeSelect?.value === 'listen') {
           handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
         }
-        const offDelay = app.midiIO.tailMs / 1000;
-        const midiOut = applyTranspose(n.midi);
-        setTimeout(() => { if (token !== app.renderToken) return; sendNoteOff(midiOut, t.channel); }, Math.max(0, offDelay * 1000));
+        // Only send note-off to external MIDI for scheduled playback in Listen mode
+        if (modeSelect?.value === 'listen') {
+          const offDelay = app.midiIO.tailMs / 1000;
+          const midiOut = applyTranspose(n.midi);
+          setTimeout(() => { if (token !== app.renderToken) return; if (modeSelect?.value === 'listen') sendNoteOff(midiOut, t.channel); }, Math.max(0, offDelay * 1000));
+        }
       }, time + Math.max(0.02, Number(n.duration) || 0));
       // Do not accumulate totals at schedule-time; accuracy is computed per loop window
     });
@@ -1285,7 +1295,8 @@ function scheduleIfNeeded() {
         const val = Math.round((cc.value ?? 0) * 127);
         Tone.Transport.schedule(() => {
           if (token !== app.renderToken) return;
-          // Update local sustain state and forward CC if applicable
+          if (modeSelect?.value !== 'listen') return;
+          // In Listen mode, follow song sustain and forward CC
           updateSustainState(channel, val >= 64, getPlaybackTime());
           sendCC(64, val, channel);
         }, (cc.time ?? 0) + now);
@@ -1599,6 +1610,108 @@ visualLatencyInput?.addEventListener('input', () => {
   savePref('visualLatencyOffset', sec);
   if (visualLatencyLabel) visualLatencyLabel.textContent = `${ms} ms`;
 });
+
+// --- Guided Panel Drag & Persist ------------------------------------------------
+const GUIDED_POS_KEY = 'km_guided_panel_pos_v1';
+
+function clampPanelPos(x, y) {
+  const pad = 8; // keep a bit of margin
+  const w = guidedPanel?.offsetWidth || 320;
+  const h = guidedPanel?.offsetHeight || 200;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const nx = Math.min(Math.max(pad, x), Math.max(pad, vw - w - pad));
+  const ny = Math.min(Math.max(pad, y), Math.max(pad, vh - h - pad));
+  return { x: nx, y: ny };
+}
+
+function applyGuidedPanelSavedPosition() {
+  if (!guidedPanel) return;
+  try {
+    const raw = localStorage.getItem(GUIDED_POS_KEY);
+    if (!raw) return;
+    const { x, y } = JSON.parse(raw);
+    const clamped = clampPanelPos(Number(x) || 0, Number(y) || 0);
+    // Switch from bottom-right utility classes to explicit top/left when custom position exists
+    guidedPanel.classList.remove('right-3','bottom-3');
+    guidedPanel.style.right = 'auto';
+    guidedPanel.style.bottom = 'auto';
+    guidedPanel.style.left = `${Math.round(clamped.x)}px`;
+    guidedPanel.style.top = `${Math.round(clamped.y)}px`;
+  } catch {}
+}
+
+function saveGuidedPanelPosition(x, y) {
+  try { localStorage.setItem(GUIDED_POS_KEY, JSON.stringify({ x, y })); } catch {}
+}
+
+function makeGuidedPanelDraggable() {
+  if (!guidedPanel || !guidedPanelHeader) return;
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let origX = 0, origY = 0;
+
+  const onMouseDown = (e) => {
+    if (!guidedPanel) return;
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    // Get current left/top; if using bottom/right defaults, compute from bounding rect
+    const rect = guidedPanel.getBoundingClientRect();
+    if (guidedPanel.style.left) {
+      origX = parseFloat(guidedPanel.style.left) || rect.left;
+      origY = parseFloat(guidedPanel.style.top) || rect.top;
+    } else {
+      origX = rect.left;
+      origY = rect.top;
+    }
+    // Switch positioning mode to top/left if needed
+    guidedPanel.classList.remove('right-3','bottom-3');
+    guidedPanel.style.right = 'auto';
+    guidedPanel.style.bottom = 'auto';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    e.preventDefault();
+  };
+
+  const onMouseMove = (e) => {
+    if (!dragging || !guidedPanel) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const { x, y } = clampPanelPos(origX + dx, origY + dy);
+    guidedPanel.style.left = `${Math.round(x)}px`;
+    guidedPanel.style.top = `${Math.round(y)}px`;
+  };
+
+  const onMouseUp = (e) => {
+    if (!dragging || !guidedPanel) return;
+    dragging = false;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+    // Persist final position
+    const rect = guidedPanel.getBoundingClientRect();
+    saveGuidedPanelPosition(rect.left, rect.top);
+  };
+
+  guidedPanelHeader.addEventListener('mousedown', onMouseDown);
+
+  // Re-clamp position on resize to keep panel on-screen
+  window.addEventListener('resize', () => {
+    if (!guidedPanel) return;
+    const rect = guidedPanel.getBoundingClientRect();
+    const { x, y } = clampPanelPos(rect.left, rect.top);
+    if (guidedPanel.style.left) {
+      guidedPanel.style.left = `${Math.round(x)}px`;
+      guidedPanel.style.top = `${Math.round(y)}px`;
+    }
+  });
+}
+
+// Initialize draggable + restore saved position
+try {
+  makeGuidedPanelDraggable();
+  applyGuidedPanelSavedPosition();
+} catch {}
 
 function isBlackKey(midi) {
   const pitchClass = midi % 12;
@@ -2177,6 +2290,7 @@ function checkNoteHit(midi, timeSec) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
     for (const exp of list) {
+      // expected is stored in original MIDI space; compare in transposed space
       if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, app.practice.octaveTol || 0) && Math.abs(exp.time - timeSec) <= tolerance) {
         exp.hit = true;
         matched = true;
