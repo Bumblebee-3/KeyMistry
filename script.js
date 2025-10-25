@@ -230,6 +230,7 @@ const app = {
   keyGlow: new Map(), 
   upcomingKeys: new Set(), 
   _lastLandingFlash: new Map(), 
+  renderToken: 0, // increments on each song load to invalidate old scheduled visuals
   pitch: {
     transpose: 0,
     // Target key selection (what user wants to play in)
@@ -278,6 +279,9 @@ const app = {
     output: null,
     thru: false,
     tailMs: 60,
+    // Echo guard to prevent MIDI loopback from causing double-highlights
+    _echo: new Map(), // key: `${ch}:${midi}:on|off` -> last sent time (sec)
+    echoWindowSec: 0.3,
   },
   pedal: {
     sustainDown: new Map(), // channel -> boolean
@@ -493,6 +497,11 @@ fileInput.addEventListener("change", async (e) => {
       showOverlay("Loading cancelled.");
       return;
     }
+    // Persist the song name BEFORE initializing so per-song keys use the correct normalized title
+    try {
+      localStorage.setItem('km_last_midi_name', file.name);
+      updatePreviousButtonLabel();
+    } catch {}
     initFromMidi(midi);
     showOverlay(`Loaded: ${file.name}`);
 
@@ -500,8 +509,7 @@ fileInput.addEventListener("change", async (e) => {
       const bytes = new Uint8Array(arrayBuffer);
       const b64 = btoa(String.fromCharCode(...bytes));
       localStorage.setItem('km_last_midi_b64', b64);
-      localStorage.setItem('km_last_midi_name', file.name);
-      updatePreviousButtonLabel();
+      // name already stored above; keep base64 for quick reloads
     } catch {}
   } catch (err) {
     console.error(err);
@@ -539,6 +547,30 @@ btnLoadPrevious?.addEventListener('click', async () => {
 });
 
 function initFromMidi(midi) {
+  // Stop any previous playback and clear visuals to avoid lingering highlights
+  try {
+    Tone.Transport.stop();
+    Tone.Transport.cancel();
+  } catch {}
+  try { stopAnimation({ clear: true }); } catch {}
+  panicAll();
+  clearLoopTimer();
+  try {
+    app.liveKeys.clear();
+    app.keyGlow.clear();
+    app.upcomingKeys.clear();
+    app._lastLandingFlash.clear();
+    app.pedal.sustainDown.clear();
+    app.pedal.sustained.forEach(set => set.clear());
+  } catch {}
+  try {
+    ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
+    drawKeyboard();
+  } catch {}
+
+  // Bump render token to invalidate any previously scheduled callbacks
+  app.renderToken = (app.renderToken || 0) + 1;
+
   app.midi = midi;
   app.tracks = [];
   app.scheduled = false;
@@ -548,6 +580,12 @@ function initFromMidi(midi) {
   app.keyGlow.clear();
   scoreEl.textContent = String(app.score);
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+
+  // Reset transpose to zero for each newly loaded song
+  app.pitch.transpose = 0;
+  savePref('transpose', 0);
+  if (transposeInput) transposeInput.value = '0';
+  if (transposeLabel) transposeLabel.textContent = '0';
 
   let duration = 0;
   midi.tracks.forEach((t) => {
@@ -617,6 +655,7 @@ function initFromMidi(midi) {
     const base = String(name).replace(/\.[^/.]+$/, '').trim();
     const normalized = base.toLowerCase();
     app.guided.progressKey = `km_progress_${normalized}`;
+    app.songCfgKey = `km_songcfg_${normalized}`;
   } catch { app.guided.progressKey = null; }
 
   const hasTwoOrMore = (app.tracks?.length || 0) > 1;
@@ -651,38 +690,102 @@ function initFromMidi(midi) {
     }
   }
 
-  // Auto-detect key on load (non-destructive, only updates labels/selections)
+  // Auto-detect key on load (set as default for this song)
   const r = detectKeyFromMidi();
   const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   if (r) {
     app.pitch.detectedTonic = r.tonic;
     app.pitch.detectedScale = r.scale;
     if (detectedKeyLabel) detectedKeyLabel.textContent = `${names[r.tonic]} ${r.scale}`;
-    // Only set if user hasn't set a key before (no pref saved)
-    const hadUserKey = loadPref('keyTonic', null) != null || loadPref('keyScale', null) != null;
-    if (!hadUserKey) {
-      app.pitch.keyTonic = r.tonic;
-      app.pitch.keyScale = r.scale;
-      if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
-      if (keyScaleSelect) keyScaleSelect.value = r.scale;
-    }
+    // Always set the song's key to the detected key on new load
+    app.pitch.keyTonic = r.tonic;
+    app.pitch.keyScale = r.scale;
+    if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
+    if (keyScaleSelect) keyScaleSelect.value = r.scale;
+    savePref('keyTonic', app.pitch.keyTonic);
+    savePref('keyScale', app.pitch.keyScale);
     // Persist baseline original key
     app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
     app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
-    // Ensure transpose aligns effective key to selected key
-    const targetTonic = app.pitch.keyTonic ?? r.tonic;
-    const newT = computeTransposeForTarget(targetTonic);
-    if (app.pitch.transpose !== newT) {
-      app.pitch.transpose = newT;
-      savePref('transpose', app.pitch.transpose);
-      if (transposeInput) transposeInput.value = String(newT);
-      if (transposeLabel) transposeLabel.textContent = `${newT}`;
-      rescheduleTransport();
-    }
+    // Ensure transpose remains zero for new song (effective key == original detected)
+    app.pitch.transpose = 0;
+    savePref('transpose', 0);
+    if (transposeInput) transposeInput.value = '0';
+    if (transposeLabel) transposeLabel.textContent = '0';
+    rescheduleTransport();
     updateEffectiveKeyLabel();
   } else if (detectedKeyLabel) {
     detectedKeyLabel.textContent = '—';
+    // Fall back to C major with zero transpose
+    app.pitch.keyTonic = 0;
+    app.pitch.keyScale = 'major';
+    savePref('keyTonic', 0);
+    savePref('keyScale', 'major');
+    if (keyTonicSelect) keyTonicSelect.value = '0';
+    if (keyScaleSelect) keyScaleSelect.value = 'major';
+    app.pitch.originalTonicPref = 0; savePref('originalTonic', 0);
+    app.pitch.originalScalePref = 'major'; savePref('originalScale', 'major');
+    app.pitch.transpose = 0; savePref('transpose', 0);
+    if (transposeInput) transposeInput.value = '0';
+    if (transposeLabel) transposeLabel.textContent = '0';
+    updateEffectiveKeyLabel();
   }
+
+  // Finally, restore any per-song overrides (transpose/key) if present
+  restoreSongConfig();
+  // Ensure a baseline song config is saved for this title
+  persistSongConfig();
+}
+
+// Per-song config persistence
+function restoreSongConfig() {
+  try {
+    if (!app.songCfgKey) return;
+    const raw = localStorage.getItem(app.songCfgKey);
+    if (!raw) return;
+    const cfg = JSON.parse(raw);
+    let changed = false;
+    if (typeof cfg.transpose === 'number' && cfg.transpose !== app.pitch.transpose) {
+      app.pitch.transpose = clamp(cfg.transpose, -12, 12);
+      if (transposeInput) transposeInput.value = String(app.pitch.transpose);
+      if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
+      savePref('transpose', app.pitch.transpose);
+      changed = true;
+    }
+    if (typeof cfg.keyTonic === 'number') {
+      app.pitch.keyTonic = ((cfg.keyTonic % 12) + 12) % 12;
+      if (keyTonicSelect) keyTonicSelect.value = String(app.pitch.keyTonic);
+      savePref('keyTonic', app.pitch.keyTonic);
+      changed = true;
+    }
+    if (typeof cfg.keyScale === 'string' && cfg.keyScale) {
+      app.pitch.keyScale = cfg.keyScale;
+      if (keyScaleSelect) keyScaleSelect.value = cfg.keyScale;
+      savePref('keyScale', app.pitch.keyScale);
+      changed = true;
+    }
+    if (changed) {
+      // Rebuild visuals/groups with restored settings
+      clearEarlyLookaheadState?.();
+      buildPracticeGroups?.();
+      rescheduleTransport?.();
+      updateEffectiveKeyLabel?.();
+    }
+  } catch {}
+}
+
+function persistSongConfig() {
+  try {
+    if (!app.songCfgKey) return;
+    const payload = {
+      transpose: app.pitch.transpose || 0,
+      keyTonic: app.pitch.keyTonic ?? 0,
+      keyScale: app.pitch.keyScale || 'major',
+      originalTonic: app.pitch.originalTonicPref ?? null,
+      originalScale: app.pitch.originalScalePref ?? null,
+    };
+    localStorage.setItem(app.songCfgKey, JSON.stringify(payload));
+  } catch {}
 }
 
 function buildTrackUI() {
@@ -1122,6 +1225,7 @@ function scheduleIfNeeded() {
   if (!app.midi || app.scheduled) return;
   Tone.Transport.cancel();
   const now = 0;
+  const token = app.renderToken;
 
   const isSoloActive = app.tracks.some((t) => t.solo);
 
@@ -1133,9 +1237,16 @@ function scheduleIfNeeded() {
     filtered.forEach((n) => {
       const time = n.time + now;
       Tone.Transport.schedule((schedTime) => {
+        if (token !== app.renderToken) return; // stale schedule, abort
         const midiOut = applyTranspose(n.midi);
         if (shouldUseLocalAudio() && synth) {
-          synth.triggerAttackRelease(Tone.Frequency(midiOut, "midi").toFrequency(), n.duration, schedTime, n.velocity);
+          const dur = Math.max(0.02, Number(n.duration) || 0);
+          synth.triggerAttackRelease(
+            Tone.Frequency(midiOut, "midi").toFrequency(),
+            dur,
+            schedTime,
+            n.velocity
+          );
         }
 
         sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
@@ -1145,18 +1256,20 @@ function scheduleIfNeeded() {
       // Only auto-highlight keys during Listen mode; in Practice mode we want
       // highlights to reflect the user's actual key presses exclusively.
       Tone.Draw.schedule(() => {
+        if (token !== app.renderToken) return;
         if (modeSelect?.value !== 'listen') return;
         handleNoteOnVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
       }, time);
 
       Tone.Draw.schedule(() => {
+        if (token !== app.renderToken) return;
         if (modeSelect?.value === 'listen') {
           handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
         }
         const offDelay = app.midiIO.tailMs / 1000;
         const midiOut = applyTranspose(n.midi);
-        setTimeout(() => sendNoteOff(midiOut, t.channel), Math.max(0, offDelay * 1000));
-      }, time + n.duration);
+        setTimeout(() => { if (token !== app.renderToken) return; sendNoteOff(midiOut, t.channel); }, Math.max(0, offDelay * 1000));
+      }, time + Math.max(0.02, Number(n.duration) || 0));
       // Do not accumulate totals at schedule-time; accuracy is computed per loop window
     });
   });
@@ -1171,6 +1284,7 @@ function scheduleIfNeeded() {
       cc64Arr.forEach(cc => {
         const val = Math.round((cc.value ?? 0) * 127);
         Tone.Transport.schedule(() => {
+          if (token !== app.renderToken) return;
           // Update local sustain state and forward CC if applicable
           updateSustainState(channel, val >= 64, getPlaybackTime());
           sendCC(64, val, channel);
@@ -1264,6 +1378,17 @@ btnPlay.addEventListener("click", async () => {
 btnPause.addEventListener("click", () => {
   Tone.Transport.pause();
   stopAnimation({ clear: false });
+  // Ensure no notes keep sounding (external MIDI or local synth)
+  panicAll();
+  // Clear visual and sustain states to avoid stuck keys
+  try {
+    app.liveKeys.clear();
+    app.keyGlow.clear();
+    app.upcomingKeys.clear();
+    app._lastLandingFlash.clear();
+    app.pedal.sustainDown.clear();
+    app.pedal.sustained.forEach(set => set.clear());
+  } catch {}
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Play';
 });
 
@@ -1286,6 +1411,7 @@ btnRestart.addEventListener("click", () => {
   Tone.Transport.stop();
   Tone.Transport.seconds = 0;
   clearLoopTimer();
+  panicAll();
   // Clear any lingering visual state
   app.liveKeys.clear();
   app.keyGlow.clear();
@@ -1305,6 +1431,8 @@ progress.addEventListener("input", () => {
 
   Tone.Transport.seconds = t;
   updateTimeUI(t);
+  // Stop any lingering notes when scrubbing
+  panicAll();
 
   ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   drawNotes(t);
@@ -1438,6 +1566,7 @@ fsPlayPause?.addEventListener('click', async () => {
   } catch {}
   if (Tone.Transport.state === 'started') {
     Tone.Transport.pause();
+    panicAll();
     fsPlayPauseIcon.textContent = 'Play';
   } else {
     scheduleIfNeeded();
@@ -1909,10 +2038,19 @@ function onMIDIMessage(e) {
 
   if (cmd === 0x90 && velocity > 0) {
     if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
-  const tNote = applyTranspose(note);
-  handleNoteOnVisual(tNote, ch, colorForIncoming(note));
-  if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127));
-  checkNoteHit(tNote, nowCal);
+    const tNote = applyTranspose(note);
+    // In Listen mode, visuals are driven by the song; ignore inbound highlights entirely
+    if (modeSelect?.value === 'listen') {
+      if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127), ch);
+      return;
+    }
+    // Filter looped-back echoes of our own outbound messages
+    if (isLikelyEcho('on', tNote, ch, now)) {
+      return;
+    }
+    handleNoteOnVisual(tNote, ch, colorForIncoming(note));
+    if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127), ch);
+    checkNoteHit(tNote, nowCal);
 
     // Smart play-ahead: credit hits for groups within lookahead window and skip their wait later
     if (modeSelect.value === 'practice' && app.practice.noteWait) {
@@ -1964,8 +2102,15 @@ function onMIDIMessage(e) {
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
     if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} OFF ch${ch} at ${now.toFixed(3)}`);
     const tNote = applyTranspose(note);
+    if (modeSelect?.value === 'listen') {
+      if (app.midiIO.thru) sendNoteOff(tNote, ch);
+      return;
+    }
+    if (isLikelyEcho('off', tNote, ch, now)) {
+      return;
+    }
     handleNoteOffVisual(tNote, ch, colorForIncoming(note));
-    if (app.midiIO.thru) sendNoteOff(tNote);
+    if (app.midiIO.thru) sendNoteOff(tNote, ch);
   } else if (cmd === 0xB0) {
 
     const controller = data1 & 0x7f;
@@ -2647,17 +2792,42 @@ function showFeedback() {
   feedbackModal.classList.remove('hidden');
 }
 
+// ---- MIDI echo guard helpers ----
+function _echoKey(type, midi, channel) {
+  return `${channel & 0x0f}:${midi & 0x7f}:${type}`;
+}
+function markOutbound(type, midi, channel) {
+  try {
+    const key = _echoKey(type, midi, channel);
+    app.midiIO._echo.set(key, Tone.Transport.seconds || 0);
+  } catch {}
+}
+function isLikelyEcho(type, midi, channel, nowSec) {
+  try {
+    const key = _echoKey(type, midi, channel);
+    const t = app.midiIO._echo.get(key);
+    if (t == null) return false;
+    return (nowSec - t) <= (app.midiIO.echoWindowSec || 0.3);
+  } catch { return false; }
+}
+
 function sendNoteOn(midi, velocity = 100, channel = 0) {
   const out = app.midiIO.output;
   if (!out) return;
   const status = 0x90 | (channel & 0x0f);
-  try { out.send([status, midi & 0x7f, clamp(velocity, 0, 127)]); } catch {}
+  try {
+    out.send([status, midi & 0x7f, clamp(velocity, 0, 127)]);
+    markOutbound('on', midi, channel);
+  } catch {}
 }
 function sendNoteOff(midi, channel = 0) {
   const out = app.midiIO.output;
   if (!out) return;
   const status = 0x80 | (channel & 0x0f);
-  try { out.send([status, midi & 0x7f, 0x00]); } catch {}
+  try {
+    out.send([status, midi & 0x7f, 0x00]);
+    markOutbound('off', midi, channel);
+  } catch {}
 }
 function sendCC(controller, value, channel = 0) {
   const out = app.midiIO.output;
@@ -2667,13 +2837,17 @@ function sendCC(controller, value, channel = 0) {
 }
 
 function panicAll() {
-
+  // External MIDI: send sustain off, all notes off, and optionally all sound off/reset
   for (let ch = 0; ch < 16; ch++) {
-    sendCC(64, 0, ch); 
+    sendCC(64, 0, ch); // sustain off
     const out = app.midiIO.output;
     if (!out) continue;
-    try { out.send([0xB0 | ch, 123, 0]); } catch {}
+    try { out.send([0xB0 | ch, 123, 0]); } catch {} // All Notes Off (CC123)
+    try { out.send([0xB0 | ch, 120, 0]); } catch {} // All Sound Off (CC120)
+    try { out.send([0xB0 | ch, 121, 0]); } catch {} // Reset All Controllers (CC121)
   }
+  // Local audio: release all voices immediately
+  try { app.synths.forEach(s => s?.releaseAll?.()); } catch {}
 }
 
 function handColorForMidi(midi) {
@@ -2793,6 +2967,7 @@ transposeInput?.addEventListener('input', () => {
   app.pitch.transpose = clamp(v, -12, 12);
   if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
   savePref('transpose', app.pitch.transpose);
+  persistSongConfig();
   // Keep selected key equal to effective key: selectedKey = original + transpose (mod 12)
   const newKey = ((getOriginalTonic() + app.pitch.transpose) % 12 + 12) % 12;
   app.pitch.keyTonic = newKey;
@@ -2818,6 +2993,7 @@ transposeInput?.addEventListener('input', () => {
   drawNotes(t); drawKeyboard();
   rescheduleTransport();
   updateEffectiveKeyLabel();
+  persistSongConfig();
 });
 
 // Timing calibration controls
@@ -2838,6 +3014,7 @@ octaveTolInput?.addEventListener('input', () => {
 keyTonicSelect?.addEventListener('change', () => {
   app.pitch.keyTonic = parseInt(keyTonicSelect.value || '0', 10) || 0;
   savePref('keyTonic', app.pitch.keyTonic);
+  persistSongConfig();
   // Adjust transpose so that effective key matches selected key
   const newT = computeTransposeForTarget(app.pitch.keyTonic);
   if (app.pitch.transpose !== newT) {
@@ -2862,11 +3039,13 @@ keyTonicSelect?.addEventListener('change', () => {
     rescheduleTransport();
   }
   updateEffectiveKeyLabel();
+  persistSongConfig();
 });
 keyScaleSelect?.addEventListener('change', () => {
   app.pitch.keyScale = keyScaleSelect.value || 'major';
   savePref('keyScale', app.pitch.keyScale);
   updateEffectiveKeyLabel();
+  persistSongConfig();
 });
 autoDetectKeyBtn?.addEventListener('click', () => {
   const r = detectKeyFromMidi();
@@ -2885,6 +3064,7 @@ autoDetectKeyBtn?.addEventListener('click', () => {
     app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
     app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
     updateEffectiveKeyLabel();
+    persistSongConfig();
   } else if (detectedKeyLabel) {
     detectedKeyLabel.textContent = '—';
   }
