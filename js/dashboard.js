@@ -1,4 +1,3 @@
-// Extracted from dashboard.html inline script
 const cardsEl = document.getElementById('cards');
 const emptyEl = document.getElementById('emptyState');
 const sortByEl = document.getElementById('sortBy');

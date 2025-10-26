@@ -1354,24 +1354,27 @@ function scheduleIfNeeded() {
         // Only send scheduled playback to external MIDI in Listen mode
         if (modeSelect?.value === 'listen') {
           sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel, schedTime);
+          // Schedule visual key-on precisely on the audio clock for robustness across rewinds/loops
+          Tone.Draw.schedule(() => {
+            if (token !== app.renderToken) return;
+            if (modeSelect?.value !== 'listen') return;
+            handleNoteOnVisual(midiOut, t.channel, colorForNoteObj(n));
+          }, schedTime);
         }
       }, time);
 
-      // Schedule visual key events on the draw timeline to sync with audio clock.
-      // Only auto-highlight keys during Listen mode; in Practice mode we want
-      // highlights to reflect the user's actual key presses exclusively.
-      Tone.Draw.schedule(() => {
+      // Schedule visual key-off on the transport timeline (no tail) and draw on the audio clock
+      const visualOffAt = time + Math.max(0.02, Number(n.duration) || 0);
+      Tone.Transport.schedule((offSchedTime) => {
         if (token !== app.renderToken) return;
         if (modeSelect?.value !== 'listen') return;
-        handleNoteOnVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
-      }, time);
-
-      Tone.Draw.schedule(() => {
-        if (token !== app.renderToken) return;
-        if (modeSelect?.value === 'listen') {
-          handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
-        }
-      }, time + Math.max(0.02, Number(n.duration) || 0));
+        const midiOut = applyTranspose(n.midi);
+        Tone.Draw.schedule(() => {
+          if (token !== app.renderToken) return;
+          if (modeSelect?.value !== 'listen') return;
+          handleNoteOffVisual(midiOut, t.channel, colorForNoteObj(n));
+        }, offSchedTime);
+      }, visualOffAt);
 
       // Schedule external MIDI note-off precisely on the transport timeline (with optional tail)
       Tone.Transport.schedule((offTime) => {
@@ -1386,10 +1389,10 @@ function scheduleIfNeeded() {
   });
 
   if (app.midi) {
-    const isSolo = isSoloActive;
+    // Schedule sustain (CC64) for all tracks/channels regardless of mute/solo.
+    // Pedal is a per-channel controller that affects overlapping tracks; gating by
+    // track enablement can leave sustain-down state stuck and cause lingering highlights.
     app.midi.tracks.forEach((mt, mi) => {
-      const enabledTrack = isSolo ? app.tracks[mi]?.solo : !app.tracks[mi]?.muted;
-      if (!enabledTrack) return;
       const channel = (typeof mt.channel === 'number') ? mt.channel : (app.tracks[mi]?.channel ?? 0);
       const cc64Arr = mt.controlChanges && (mt.controlChanges[64] || mt.controlChanges["64"]) || [];
       cc64Arr.forEach(cc => {
@@ -1448,6 +1451,16 @@ function scheduleIfNeeded() {
             app.practice.matchedIds = new Set();
             clearEarlyLookaheadState();
             try { Tone.Transport.seconds = start; } catch {}
+            // Clear any lingering audio and visual state before restarting the loop
+            try { panicAll(); } catch {}
+            try {
+              app.liveKeys.clear();
+              app.keyGlow.clear();
+              app.upcomingKeys.clear();
+              app._lastLandingFlash.clear();
+              app.pedal.sustainDown.clear();
+              app.pedal.sustained.forEach(set => set.clear());
+            } catch {}
             ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
             if (wasRunning) { try { Tone.Transport.start(); } catch {} }
             loop._pending = false;
