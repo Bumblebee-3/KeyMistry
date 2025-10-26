@@ -1,7 +1,40 @@
 {
-  "name": "learnpiano",
+  "name": "keymistry",
   "version": "1.0.0",
-  "private": true,
+  "description": "KeyMistry is a browser-based MIDI piano trainer with falling notes, Guided Learning, Web MIDI I/O, and a local progress dashboard.",
+  "homepage": "https://bumblebee-3.github.io/KeyMistry/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Bumblebee-3/KeyMistry.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Bumblebee-3/KeyMistry/issues"
+  },
+  "license": "GPL-3.0",
+  "author": {
+    "name": "Hridhuun Savant",
+    "url": "https://bumblebee-2008.github.io/"
+  },
+  "contributors": [
+    { "name": "Bumblebee-3", "url": "https://github.com/Bumblebee-3" }
+  ],
+  "keywords": [
+    "piano",
+    "midi",
+    "web midi",
+    "tone.js",
+    "music",
+    "education",
+    "practice",
+    "piano roll",
+    "tailwindcss",
+    "guided learning",
+    "transpose",
+    "dashboard"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev:css": "tailwindcss -i css/src/tailwind.css -o css/tailwind.css -w",
     "build:css": "tailwindcss -i css/src/tailwind.css -o css/tailwind.css --minify",
