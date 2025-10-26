@@ -254,6 +254,20 @@
             </button>
             <div id="overlayMsg" class="absolute inset-x-0 top-4 mx-auto w-fit bg-gray-800/70 border border-gray-700 px-3 py-1 rounded-full text-xs hidden"></div>
             <div id="countdown" class="absolute inset-x-0 top-1/3 mx-auto text-6xl font-bold text-white/90 drop-shadow-lg hidden"></div>
+
+            <!-- Accuracy overlay shown after each Guided section -->
+            <div id="accuracyOverlay" class="absolute inset-0 hidden z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+              <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-md w-[92%] p-5 text-center">
+                <div class="text-sm text-emerald-300 font-semibold mb-1">Section Complete!</div>
+                <div class="text-3xl font-bold mb-2"><span id="accOvPercent">0</span>% accuracy</div>
+                <div class="text-sm opacity-80 mb-4">Avg timing: <span id="accOvTiming">0 ms</span></div>
+                <div class="flex items-center justify-center gap-2">
+                  <button id="accReplayBtn" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Replay Section</button>
+                  <button id="accContinueBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Continue</button>
+                </div>
+                <div id="accOvUnlockHint" class="text-xs opacity-60 mt-2">You can continue in 5s…</div>
+              </div>
+            </div>
           </div>
         </section>
       </div>
@@ -307,12 +321,13 @@
         </div>
         <div id="guidedAccLabel" class="text-xs opacity-80 mt-1">0% accuracy</div>
       </div>
-      <div class="mt-3 flex items-center gap-2">
-        <button id="guidedPrevSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Stage</button>
-        <button id="guidedNextSec" class="px-2 py-1 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Stage</button>
-        
+      <div class="mt-3 grid grid-cols-2 items-center gap-2">
+        <div class="flex items-center gap-2">
+          <button id="guidedPrevSec" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Stage</button>
+          <button id="guidedNextSec" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Stage</button>
+        </div>
         <!-- Loop decision controls -->
-        <div id="guidedDecision" class="ml-auto hidden items-center gap-2">
+        <div id="guidedDecision" class="hidden flex items-center justify-end gap-2">
           <button id="guidedPracticeAgainBtn" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600" title="Repeat this phase">Practice Again</button>
           <button id="guidedPhaseContinueBtn" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="Proceed to next phase">Continue</button>
         </div>

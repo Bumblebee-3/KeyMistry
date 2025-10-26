@@ -143,6 +143,13 @@ const guidedStepBoth = document.getElementById('guidedStepBoth');
 const guidedScopeEl = document.getElementById('guidedScope');
 const guidedOverallBar = document.getElementById('guidedOverallBar');
 const guidedOverallLabel = document.getElementById('guidedOverallLabel');
+// Accuracy overlay elements
+const accuracyOverlay = document.getElementById('accuracyOverlay');
+const accOvPercentEl = document.getElementById('accOvPercent');
+const accOvTimingEl = document.getElementById('accOvTiming');
+const accOvReplayBtn = document.getElementById('accReplayBtn');
+const accOvContinueBtn = document.getElementById('accContinueBtn');
+const accOvUnlockHint = document.getElementById('accOvUnlockHint');
 // Guided config inputs
 // Section length UI removed; fixed to 20s
 const guidedSectionLenInput = null;
@@ -217,6 +224,9 @@ const app = {
     stage: 'left', // 'left'|'right'|'both'
     progressKey: null, // localStorage key
     sectionLenSec: 20,
+    // Overlay/input lock state during end-of-section summary
+    inputLocked: false,
+    overlayUnlockAt: 0,
   // strictMode/accThreshold removed from UI; continue is always available
   },
   midi: undefined,
@@ -269,6 +279,7 @@ const app = {
     skipWaitFor: new Set(), // indices that should not pause when reached
     satisfiedGroups: new Set(), // group indices satisfied this loop
     lastLoopAccPercent: 0, // persist last loop's accuracy for steady UI at loop restart
+    matchedIds: new Set(), // per-loop set of matched expected note ids
   },
   midiIO: {
     access: null,
@@ -992,10 +1003,12 @@ function markStageOnContinue() {
 }
 
 function evaluateLoopPerformance() {
-  // Calculate accuracy for this loop iteration from groups entirely within [start, end)
+  // Calculate accuracy per-note for notes within [start, end),
+  // giving full credit for satisfied groups and partial credit otherwise.
   const loopStart = app.practice.loop?.start ?? 0;
   const loopEnd = app.practice.loop?.end ?? app.duration;
   const groups = app.practice.groups || [];
+  const matched = app.practice.matchedIds || new Set();
   let expected = 0;
   let correct = 0;
   for (let i = 0; i < groups.length; i++) {
@@ -1005,8 +1018,15 @@ function evaluateLoopPerformance() {
     if (g.time >= loopEnd) break;
     const sz = g.notes?.length || 0;
     expected += sz;
-    if (app.practice.satisfiedGroups.has(i)) correct += sz;
+    if (app.practice.satisfiedGroups.has(i)) {
+      // Full credit if group satisfied (either by early hits or during wait)
+      correct += sz;
+    } else if (Array.isArray(g.ids) && g.ids.length) {
+      // Partial credit: count matched ids belonging to this group
+      for (const id of g.ids) if (matched.has(id)) correct += 1;
+    }
   }
+  correct = Math.min(correct, expected);
   app.practice.stats.total = expected;
   app.practice.stats.correct = correct;
   const percent = expected ? Math.round((correct / expected) * 100) : 0;
@@ -1046,6 +1066,80 @@ function evaluateLoopPerformance() {
   if (percent >= 98) showOverlay(`🔥 Accuracy: ${percent}% – Ready to continue?`, 1400);
   else showOverlay(`🎯 Accuracy: ${percent}%`, 1200);
   showGuidedDecision(percent);
+}
+
+// ---- Guided section accuracy overlay ---------------------------------------
+function avgTimingMs() {
+  const arr = app.practice?.stats?.timings || [];
+  if (!arr.length) return 0;
+  const mean = arr.reduce((a,b)=>a+b,0) / arr.length;
+  return Math.round(mean * 1000); // signed: +late, -early
+}
+
+function setOverlayButtonsEnabled(en) {
+  if (accOvReplayBtn) { accOvReplayBtn.disabled = !en; }
+  if (accOvContinueBtn) { accOvContinueBtn.disabled = !en; }
+  if (accOvUnlockHint) accOvUnlockHint.classList.toggle('hidden', en);
+}
+
+function showAccuracyOverlay() {
+  if (!accuracyOverlay) return;
+  // Populate numbers
+  const total = Number(app.practice?.stats?.total) || 0;
+  const correct = Number(app.practice?.stats?.correct) || 0;
+  const percent = total > 0 ? Math.round((correct/total)*100) : 0; // no fallback to avoid stale 100%
+  const avgMs = avgTimingMs();
+  if (accOvPercentEl) accOvPercentEl.textContent = String(percent);
+  if (accOvTimingEl) accOvTimingEl.textContent = `${avgMs > 0 ? '+' : ''}${avgMs} ms`;
+  // Lock inputs for at least 5s
+  app.guided.inputLocked = true;
+  app.guided.overlayUnlockAt = performance.now() + 5000;
+  setOverlayButtonsEnabled(false);
+  accuracyOverlay.classList.remove('hidden');
+  let interval = null;
+  if (accOvUnlockHint) {
+    interval = setInterval(() => {
+      const rem = Math.ceil((app.guided.overlayUnlockAt - performance.now())/1000);
+      if (rem > 0) accOvUnlockHint.textContent = `You can continue in ${rem}s…`;
+      if (performance.now() >= app.guided.overlayUnlockAt) {
+        clearInterval(interval); interval = null;
+        setOverlayButtonsEnabled(true);
+        accOvUnlockHint.textContent = '';
+      }
+    }, 250);
+  }
+
+  const cleanup = () => {
+    if (interval) { try{ clearInterval(interval);}catch{} interval = null; }
+    accuracyOverlay.classList.add('hidden');
+    app.guided.inputLocked = false;
+    // Allow loop engine to progress again
+    if (app.practice?.loop) app.practice.loop._pending = false;
+  };
+
+  // Button handlers
+  accOvReplayBtn?.addEventListener('click', async () => {
+    if (performance.now() < app.guided.overlayUnlockAt) return;
+    cleanup();
+    // Reset stats and restart current loop
+    app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+    app.practice.matchedIds = new Set();
+    clearEarlyLookaheadState();
+    try {
+      const { start } = app.practice.loop || { start: 0 };
+      Tone.Transport.seconds = start || 0;
+      updateTimeUI(start || 0);
+      Tone.Transport.start(`+${START_DELAY}`);
+      startAnimation();
+    } catch {}
+  }, { once: true });
+
+  accOvContinueBtn?.addEventListener('click', async () => {
+    if (performance.now() < app.guided.overlayUnlockAt) return;
+    cleanup();
+    // Mark and move to next guided phase/section
+    guidedPhaseContinueBtn?.click();
+  }, { once: true });
 }
 
 // Guided loop decision controls
@@ -1122,8 +1216,12 @@ function startGuidedPracticeCycle() {
   if (modeSelect) modeSelect.value = 'practice';
   app.practice.noteWait = true;
   if (noteWaitToggle) noteWaitToggle.checked = true;
+  // In note-wait guided practice, do NOT auto-continue — wait for user to play
+  app.practice.autoContinue = false;
   // reset stats for this section run
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+  app.practice.matchedIds = new Set();
+  app.practice.lastLoopAccPercent = 0;
   clearEarlyLookaheadState();
   updateGuidedUI();
   setGuidedLoopToCurrentStage();
@@ -1255,7 +1353,7 @@ function scheduleIfNeeded() {
         }
         // Only send scheduled playback to external MIDI in Listen mode
         if (modeSelect?.value === 'listen') {
-          sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel);
+          sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel, schedTime);
         }
       }, time);
 
@@ -1273,13 +1371,16 @@ function scheduleIfNeeded() {
         if (modeSelect?.value === 'listen') {
           handleNoteOffVisual(applyTranspose(n.midi), t.channel, colorForNoteObj(n));
         }
-        // Only send note-off to external MIDI for scheduled playback in Listen mode
-        if (modeSelect?.value === 'listen') {
-          const offDelay = app.midiIO.tailMs / 1000;
-          const midiOut = applyTranspose(n.midi);
-          setTimeout(() => { if (token !== app.renderToken) return; if (modeSelect?.value === 'listen') sendNoteOff(midiOut, t.channel); }, Math.max(0, offDelay * 1000));
-        }
       }, time + Math.max(0.02, Number(n.duration) || 0));
+
+      // Schedule external MIDI note-off precisely on the transport timeline (with optional tail)
+      Tone.Transport.schedule((offTime) => {
+        if (token !== app.renderToken) return;
+        if (modeSelect?.value === 'listen') {
+          const midiOut = applyTranspose(n.midi);
+          sendNoteOff(midiOut, t.channel, offTime);
+        }
+      }, time + Math.max(0.02, Number(n.duration) || 0) + (app.midiIO.tailMs / 1000));
       // Do not accumulate totals at schedule-time; accuracy is computed per loop window
     });
   });
@@ -1328,17 +1429,30 @@ function scheduleIfNeeded() {
         const wasRunning = (Tone.Transport.state === 'started');
         try { Tone.Transport.pause(); } catch {}
         if (loop._timer) { try { clearTimeout(loop._timer); } catch {} loop._timer = null; }
-        loop._timer = setTimeout(() => {
-          loop._timer = null;
+        // In Guided mode, pause and show overlay instead of auto-restarting
+        if (app.guided.enabled && modeSelect.value === 'practice') {
           try { evaluateLoopPerformance(); } catch {}
-          // Reset iteration stats and early lookahead caches for next loop
-          app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
-          clearEarlyLookaheadState();
-          try { Tone.Transport.seconds = start; } catch {}
+          // Persist progress snapshot
+          persistGuidedProgress?.();
+          // Clear satisfied marks for next attempt, keep stats until overlay action
           ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
-          if (wasRunning) { try { Tone.Transport.start(); } catch {} }
-          loop._pending = false;
-        }, Math.max(0, pauseMs || 300));
+          drawKeyboard();
+          showAccuracyOverlay();
+          // Keep _pending true until user chooses Replay/Continue to avoid re-triggering
+        } else {
+          // Legacy fallback: short pause then auto-loop
+          loop._timer = setTimeout(() => {
+            loop._timer = null;
+            try { evaluateLoopPerformance(); } catch {}
+            app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+            app.practice.matchedIds = new Set();
+            clearEarlyLookaheadState();
+            try { Tone.Transport.seconds = start; } catch {}
+            ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
+            if (wasRunning) { try { Tone.Transport.start(); } catch {} }
+            loop._pending = false;
+          }, Math.max(0, pauseMs || 300));
+        }
       }
     }
   }, 0.05);
@@ -1988,7 +2102,7 @@ function startAnimation() {
   cancelAnimationFrame(rafId);
   const loop = () => {
     if (!animRunning) return;
-    const t = getPlaybackTime();
+    const t = getSmoothVisualTime();
     drawNotes(t);
     drawKeyboard();
 
@@ -2149,6 +2263,19 @@ function onMIDIMessage(e) {
   const now = Tone.Transport.seconds;
   const nowCal = now + (app.practice.inputOffsetSec || 0);
 
+  // During accuracy overlay lock, ignore input for visuals/detection but allow optional MIDI Thru
+  if (app.guided?.inputLocked) {
+    if (cmd === 0x90 && velocity > 0) {
+      if (app.midiIO.thru) sendNoteOn(applyTranspose(note), Math.round(velocity * 127), ch);
+    } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
+      if (app.midiIO.thru) sendNoteOff(applyTranspose(note), ch);
+    } else if (cmd === 0xB0) {
+      const controller = data1 & 0x7f; const value = data2 & 0x7f;
+      if (app.midiIO.thru) sendCC(controller, value, ch);
+    }
+    return;
+  }
+
   if (cmd === 0x90 && velocity > 0) {
     if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
     const tNote = applyTranspose(note);
@@ -2300,6 +2427,11 @@ function checkNoteHit(midi, timeSec) {
 
         startKeyGlow(midi, true, '#22c55e');
         setTimeout(() => startKeyGlow(midi, false, '#22c55e'), 140);
+        // Track matched id for per-note accuracy within current loop window
+        try {
+          const inLoop = app.practice.loop?.enabled ? (exp.time >= app.practice.loop.start && exp.time < app.practice.loop.end) : true;
+          if (inLoop && exp.id) app.practice.matchedIds.add(exp.id);
+        } catch {}
         return true;
       }
     }
@@ -2325,10 +2457,26 @@ function midiMatchesWithOctave(expected, played, octaveTol) {
 function matchAndMarkRequired(playedMidi) {
   if (!app.practice.waiting) return false;
   const tol = app.practice.octaveTol || 0;
+  // Try to match against requiredSet and also record matched id for partial-credit accounting
   for (const req of app.practice.requiredSet) {
     if (app.practice.hitSet.has(req)) continue;
     if (midiMatchesWithOctave(req, playedMidi, tol)) {
       app.practice.hitSet.add(req);
+      // Also map this match to a concrete expected note id within the current group (if available)
+      try {
+        const gi = app.practice.currentIndex;
+        const g = app.practice.groups?.[gi];
+        if (g && Array.isArray(g.ids) && Array.isArray(g.notes) && g.ids.length === g.notes.length) {
+          for (let k = 0; k < g.notes.length; k++) {
+            const noteVal = g.notes[k];
+            const id = g.ids[k];
+            if (!app.practice.matchedIds.has(id) && midiMatchesWithOctave(noteVal, playedMidi, tol)) {
+              app.practice.matchedIds.add(id);
+              break;
+            }
+          }
+        }
+      } catch {}
       return true;
     }
   }
@@ -2875,12 +3023,19 @@ function resumeFromGroupWait(now) {
   app.practice.waiting = false;
   clearTimeout(app.practice._waitTimeout);
 
-  app.practice.stats.correct += app.practice.requiredSet.size;
-  const delta = now - (app.practice.lastWaitTime ?? now);
-  app.practice.stats.timings.push(delta);
-  // Record satisfied group index
-  if (Number.isFinite(app.practice.currentIndex)) {
-    app.practice.satisfiedGroups.add(app.practice.currentIndex);
+  // Credit only the notes actually hit; full credit and satisfiedGroups only if the chord was fully matched
+  try {
+    const gi = app.practice.currentIndex;
+    const required = app.practice.requiredSet || new Set();
+    const hitCount = [...required].filter(n => app.practice.hitSet?.has(n)).length;
+    app.practice.stats.correct += hitCount;
+    const delta = now - (app.practice.lastWaitTime ?? now);
+    app.practice.stats.timings.push(delta);
+    if (Number.isFinite(gi) && hitCount >= required.size && required.size > 0) {
+      app.practice.satisfiedGroups.add(gi);
+    }
+  } catch {
+    // fall back: no extra credit
   }
   updateGuidedUI();
 
@@ -2925,21 +3080,33 @@ function isLikelyEcho(type, midi, channel, nowSec) {
   } catch { return false; }
 }
 
-function sendNoteOn(midi, velocity = 100, channel = 0) {
+function _audioTimeToMidiTimestamp(audioTimeSec) {
+  try {
+    const ctx = Tone.getContext();
+    const nowAudio = ctx.now(); // seconds
+    const nowMs = performance.now();
+    const deltaMs = Math.max(0, (audioTimeSec - nowAudio) * 1000);
+    return nowMs + deltaMs;
+  } catch { return undefined; }
+}
+
+function sendNoteOn(midi, velocity = 100, channel = 0, schedTimeSec = undefined) {
   const out = app.midiIO.output;
   if (!out) return;
   const status = 0x90 | (channel & 0x0f);
   try {
-    out.send([status, midi & 0x7f, clamp(velocity, 0, 127)]);
+    const ts = (schedTimeSec != null) ? _audioTimeToMidiTimestamp(schedTimeSec) : undefined;
+    out.send([status, midi & 0x7f, clamp(velocity, 0, 127)], ts);
     markOutbound('on', midi, channel);
   } catch {}
 }
-function sendNoteOff(midi, channel = 0) {
+function sendNoteOff(midi, channel = 0, schedTimeSec = undefined) {
   const out = app.midiIO.output;
   if (!out) return;
   const status = 0x80 | (channel & 0x0f);
   try {
-    out.send([status, midi & 0x7f, 0x00]);
+    const ts = (schedTimeSec != null) ? _audioTimeToMidiTimestamp(schedTimeSec) : undefined;
+    out.send([status, midi & 0x7f, 0x00], ts);
     markOutbound('off', midi, channel);
   } catch {}
 }
@@ -3015,6 +3182,37 @@ function shouldUseLocalAudio() {
 }
 
 function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
+
+// Visual clock smoothing to avoid small jitters from Transport.seconds
+const _smoothClock = { est: 0, lastRaf: 0, lastState: 'stopped', lastTone: 0 };
+function getSmoothVisualTime() {
+  const tone = getPlaybackTime();
+  const now = performance.now();
+  const state = Tone.Transport.state;
+  if (state !== 'started') {
+    _smoothClock.est = tone;
+    _smoothClock.lastRaf = now;
+    _smoothClock.lastState = state;
+    _smoothClock.lastTone = tone;
+    return tone;
+  }
+  if (_smoothClock.lastState !== 'started' || Math.abs(tone - _smoothClock.est) > 0.15) {
+    _smoothClock.est = tone;
+    _smoothClock.lastRaf = now;
+    _smoothClock.lastState = state;
+    _smoothClock.lastTone = tone;
+    return tone;
+  }
+  const dt = Math.max(0, (now - _smoothClock.lastRaf) / 1000);
+  _smoothClock.est += dt;
+  _smoothClock.lastRaf = now;
+  _smoothClock.lastState = state;
+  _smoothClock.lastTone = tone;
+  // Nudge towards the real transport time to correct drift gradually
+  const err = clamp(tone - _smoothClock.est, -0.05, 0.05);
+  _smoothClock.est += err * 0.2;
+  return _smoothClock.est;
+}
 
 // ---------- Transpose & Key helpers ----------
 function applyTranspose(midi) {
