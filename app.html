@@ -7,11 +7,11 @@
     <link rel="icon" type="image/x-icon" href="./assets/favicon.png">
   <link rel="stylesheet" href="./css/tailwind.css" />
 
-    <!-- Driver.js (IIFE build) from jsDelivr: recommended by user to avoid MIME issues -->
+    
     <script src="https://cdn.jsdelivr.net/npm/driver.js@latest/dist/driver.js.iife.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/driver.js@latest/dist/driver.css"/>
 
-    <!-- SEO: Basic -->
+    
   <meta name="description" content="KeyMistry is a browser-based MIDI practice tool with a piano roll, hands isolation, practice mode, and Web MIDI I/O. Upload a MIDI and start practicing right away.">
     <meta name="keywords" content="piano, midi, practice, web midi, piano roll, learn piano, tone.js, music learning">
     <meta name="robots" content="index, follow">
@@ -19,7 +19,7 @@
     <meta name="theme-color" content="#0b1220">
   <link rel="canonical" href="https://bumblebee-3.github.io/KeyMistry/">
 
-    <!-- SEO: Open Graph -->
+    
     <meta property="og:type" content="website">
   <meta property="og:site_name" content="KeyMistry">
   <meta property="og:title" content="KeyMistry – MIDI Practice in Your Browser">
@@ -27,14 +27,14 @@
   <meta property="og:url" content="https://bumblebee-3.github.io/KeyMistry/">
     <meta property="og:image" content="./assets/image.png">
 
-    <!-- SEO: Twitter Card -->
+    
     <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="KeyMistry – MIDI Practice in Your Browser">
     <meta name="twitter:description" content="Upload a MIDI file, visualize the notes, isolate hands, and practice with Web MIDI on desktop.">
     <meta name="twitter:image" content="./assets/image.png">
     <meta name="twitter:creator" content="@Bumblebee3">
 
-    <!-- SEO: Structured Data (JSON-LD) -->
+    
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -56,44 +56,44 @@
         0%, 100% { transform: translateY(0); }
         50% { transform: translateY(-8px); }
       }
-      /* Driver.js popover theme tweaks */
+      
       .driver-popover {
-        background: rgba(17, 24, 39, 0.95) !important; /* gray-900 */
-        color: #e5e7eb !important; /* gray-200 */
-        border: 1px solid rgba(75, 85, 99, 0.8) !important; /* gray-600 */
-        border-radius: 0.75rem !important; /* rounded-xl */
+        background: rgba(17, 24, 39, 0.95) !important; 
+        color: #e5e7eb !important; 
+        border: 1px solid rgba(75, 85, 99, 0.8) !important; 
+        border-radius: 0.75rem !important; 
         box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 0 1px rgba(16,185,129,0.08) !important;
       }
       .driver-popover-title {
         color: #e5e7eb !important;
       }
       .driver-popover-description {
-        color: #cbd5e1 !important; /* slate-300 */
+        color: #cbd5e1 !important; 
       }
       .driver-popover-prev-btn,
       .driver-popover-next-btn,
       .driver-popover-close-btn {
-        background: #111827 !important; /* gray-900 */
-        border: 1px solid #374151 !important; /* gray-700 */
+        background: #111827 !important; 
+        border: 1px solid #374151 !important; 
         color: #e5e7eb !important;
         border-radius: 0.5rem !important;
       }
       .driver-popover-next-btn {
-        background: #0ea5e9 !important; /* sky-500 */
-        border-color: #0284c7 !important; /* sky-600 */
+        background: #0ea5e9 !important; 
+        border-color: #0284c7 !important; 
         color: white !important;
       }
       .driver-highlighted-element, .driver-active-element {
         border-radius: 0.75rem !important;
-        box-shadow: 0 0 0 2px rgba(20,184,166,0.6) !important; /* teal glow */
+        box-shadow: 0 0 0 2px rgba(20,184,166,0.6) !important; 
       }
     </style>
   </head>
   <body class="bg-gray-900 text-gray-100 min-h-screen">
-    <!-- Loading Overlay -->
+    
     <div id="loadingOverlay" class="fixed inset-0 bg-gray-900/80 flex items-center justify-center transition-opacity duration-500" style="z-index: 60;">
       <div class="text-center space-y-4">
-        <!-- Animated piano keys -->
+        
         <div class="flex items-end gap-1 justify-center">
           <div class="w-4 h-10 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: 0s;"></div>
           <div class="w-4 h-14 bg-gray-200 rounded-sm shadow" style="animation: lp-bounce 0.8s ease-in-out infinite; animation-delay: .08s;"></div>
@@ -194,7 +194,7 @@
             <div class="text-sm opacity-80">Score: <span id="score">0</span></div>
             <div id="midiStatus" class="text-xs opacity-70 hidden"></div>
             
-            <!-- Moved here to avoid crowding the top control row -->
+            
             <button id="guidedToggle" class="ml-auto px-3 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl transition" aria-label="Guided Learning" title="Guided Learning">
               Guided
             </button>
@@ -254,7 +254,7 @@
             <div id="overlayMsg" class="absolute inset-x-0 top-4 mx-auto w-fit bg-gray-800/70 border border-gray-700 px-3 py-1 rounded-full text-xs hidden"></div>
             <div id="countdown" class="absolute inset-x-0 top-1/3 mx-auto text-6xl font-bold text-white/90 drop-shadow-lg hidden"></div>
 
-            <!-- Accuracy overlay shown after each Guided section -->
+            
             <div id="accuracyOverlay" class="absolute inset-0 hidden z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
               <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-md w-[92%] p-5 text-center">
                 <div class="text-sm text-emerald-300 font-semibold mb-1">Section Complete!</div>
@@ -282,7 +282,7 @@
       </footer>
     </div>
 
-    <!-- Walkthrough Welcome Modal -->
+    
     <div id="walkthroughWelcome" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-[55]">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-6">
         <h3 class="text-xl font-semibold mb-2">🎹 Welcome to KeyMistry</h3>
@@ -294,21 +294,21 @@
       </div>
     </div>
 
-    <!-- Guided Learning Panel -->
+    
     <div id="guidedPanel" class="fixed right-3 bottom-3 z-[60] hidden w-[340px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
   <h3 id="guidedPanelHeader" class="text-lg font-semibold flex items-center gap-2 cursor-move select-none">Guided Learning</h3>
       <p class="text-xs opacity-70 mb-2">Progressive, cumulative stages.</p>
       <div class="text-sm"><span id="guidedSectionLabel">Stage 1 of 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
       <div id="guidedScope" class="text-xs opacity-70">Scope: Section 1</div>
       <div id="guidedHint" class="text-xs text-white/70 mt-1">Now practice your left hand.</div>
-      <!-- Overall progress -->
+      
       <div class="mt-2">
         <div class="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden">
           <div id="guidedOverallBar" class="h-full bg-emerald-500" style="width:0%"></div>
         </div>
         <div id="guidedOverallLabel" class="text-[11px] opacity-80 mt-1">0% overall</div>
       </div>
-      <!-- Step bar -->
+      
       <div class="mt-2 flex items-center gap-1 text-[11px]">
         <span id="guidedStepLeft" class="px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700">Left</span>
         <span id="guidedStepRight" class="px-2 py-0.5 rounded-full bg-gray-800 border border-gray-700">Right</span>
@@ -325,20 +325,20 @@
           <button id="guidedPrevSec" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Prev Stage</button>
           <button id="guidedNextSec" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600">Next Stage</button>
         </div>
-        <!-- Loop decision controls -->
+        
         <div id="guidedDecision" class="hidden flex items-center justify-end gap-2">
           <button id="guidedPracticeAgainBtn" class="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600" title="Repeat this phase">Practice Again</button>
           <button id="guidedPhaseContinueBtn" class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-500" title="Proceed to next phase">Continue</button>
         </div>
       </div>
-      <!-- Next stage preview (mini timeline placeholder) -->
+      
       <div id="guidedPreview" class="mt-2 h-8 rounded-lg bg-gray-800/60 border border-gray-700 flex items-center justify-center text-[10px] opacity-75">
         Next Stage Preview
       </div>
-      <!-- Config row removed: fixed 20s sections; no strict mode or threshold -->
+      
     </div>
 
-    <!-- Guided Prompt Modal -->
+    
   <div id="guidedPrompt" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
         <h3 class="text-lg font-semibold mb-2">Guided Learning</h3>
@@ -349,7 +349,7 @@
       </div>
     </div>
     
-    <!-- Multi-track Warning Modal -->
+    
     <div id="multiTrackModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-lg w-[92%] p-4">
   <h3 id="multiTrackTitle" class="text-lg font-semibold mb-2">Multiple Instruments Detected</h3>
@@ -361,7 +361,7 @@
       </div>
     </div>
 
-    <!-- Floating Help / Replay Walkthrough Button -->
+    
     <button id="helpWalkthroughBtn" title="Replay tutorial" class="fixed bottom-4 right-4 z-40 w-10 h-10 rounded-full bg-gray-800 border border-gray-700 shadow-lg hover:bg-gray-700 flex items-center justify-center text-teal-300">
       ?
     </button>
@@ -521,19 +521,19 @@
       </div>
     </div>
 
-    <!-- Mobile device block overlay -->
+    
     <div id="mobileBlock" class="fixed inset-0 z-50 hidden bg-gray-900 text-gray-100 overscroll-none" style="touch-action: none;">
       <div class="w-full h-full flex items-center justify-center p-6">
         <div class="max-w-lg text-center space-y-4">
-          <!-- Clean no-mobile icon -->
+          
           <div class="flex justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" class="w-24 h-24" aria-hidden="true">
-              <!-- Phone silhouette -->
+              
               <g fill="#94a3b8" opacity="0.35">
                 <rect x="24" y="14" width="16" height="36" rx="3" ry="3" />
                 <circle cx="32" cy="46" r="2" />
               </g>
-              <!-- Prohibition ring and slash -->
+              
               <circle cx="32" cy="32" r="22" fill="none" stroke="#f43f5e" stroke-width="5" />
               <path d="M18 46 L46 18" stroke="#f43f5e" stroke-width="5" stroke-linecap="round" />
             </svg>
@@ -562,7 +562,7 @@
             document.body && document.body.classList.add('mobile-blocked');
             window.__KM_BLOCKED = true;
           }
-        } catch(e) { /* no-op */ }
+        } catch(e) {  }
       })();
     </script>
     <script>
@@ -575,7 +575,7 @@
       }
     </script>
 
-    <!-- Transpose & Key Modal -->
+    
     <div id="transposeModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center z-50">
       <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-[92%] p-4">
         <div class="flex items-center justify-between mb-3">

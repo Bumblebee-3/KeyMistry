@@ -2,9 +2,9 @@ import * as Tone from "https://cdn.skypack.dev/tone@14.8.49";
 import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
 
 if (window.__KM_BLOCKED) {
-  // Export an empty module to satisfy type=module
+
 }
-// Debug logging flag (disable to avoid performance hits)
+
 const LOG_MIDI = false;
 savePref('grid', false)
 const fileInput = document.getElementById("fileInput");
@@ -54,7 +54,7 @@ const midiConnDot = document.getElementById("midiConnDot");
 const refreshMIDI = document.getElementById("refreshMIDI");
 const testNoteBtn = document.getElementById("testNoteBtn");
 const midiThruToggle = document.getElementById("midiThruToggle");
-// Removed redundant practice toggle; use modeSelect instead
+
 const tailMsInput = document.getElementById("tailMsInput");
 const tailMsLabel = document.getElementById("tailMsLabel");
 
@@ -74,29 +74,26 @@ const noteOpacity = document.getElementById("noteOpacity");
 const noteOpacityLabel = document.getElementById("noteOpacityLabel");
 const glowIntensity = document.getElementById("glowIntensity");
 const glowIntensityLabel = document.getElementById("glowIntensityLabel");
-// Timing calibration UI
+
 const inputOffsetMsInput = document.getElementById('inputOffsetMs');
 const inputOffsetLabel = document.getElementById('inputOffsetLabel');
-// Octave tolerance UI
+
 const octaveTolInput = document.getElementById('octaveTol');
 const octaveTolLabel = document.getElementById('octaveTolLabel');
-// Pitch & Key controls
+
 const transposeInput = document.getElementById('transpose');
 const transposeLabel = document.getElementById('transposeLabel');
 const keyTonicSelect = document.getElementById('keyTonic');
 const keyScaleSelect = document.getElementById('keyScale');
 const autoDetectKeyBtn = document.getElementById('autoDetectKey');
 const detectedKeyLabel = document.getElementById('detectedKeyLabel');
-// --- MIDI sanitization helpers -------------------------------------------------
-// Some MIDIs encode time signature meta (0xFF 0x58) with wrong length (e.g., 2 instead of 4),
-// which @tonejs/midi rejects. As a local workaround, downgrade such events to a benign
-// sequencer-specific meta (0xFF 0x7F) keeping the same length so chunk sizes remain valid.
+
 function sanitizeTimeSignatureMeta(u8) {
-  const out = new Uint8Array(u8); // copy to avoid mutating original
+  const out = new Uint8Array(u8); 
   const n = out.length;
   for (let i = 0; i < n - 3; i++) {
     if (out[i] === 0xFF && out[i + 1] === 0x58) {
-      // Read VLQ length starting at i+2
+
       let j = i + 2;
       let len = 0;
       let consumed = 0;
@@ -107,21 +104,20 @@ function sanitizeTimeSignatureMeta(u8) {
         if ((b & 0x80) === 0) break;
       }
       if (len !== 4) {
-        // Change meta type to sequencer-specific to avoid strict parser check
+
         out[i + 1] = 0x7F;
       }
-      // Skip over data payload to continue scanning
+
       i = (j + len - 1);
     }
   }
   return out;
 }
 
-// Guided UI elements
 const guidedToggleBtn = document.getElementById('guidedToggle');
 const guidedPanel = document.getElementById('guidedPanel');
 const guidedPanelHeader = document.getElementById('guidedPanelHeader');
-const guidedSectionLabel = document.getElementById('guidedSectionLabel'); // will display "Stage X of N"
+const guidedSectionLabel = document.getElementById('guidedSectionLabel'); 
 const guidedStageLabel = document.getElementById('guidedStageLabel');
 const guidedAccBar = document.getElementById('guidedAccBar');
 const guidedAccLabel = document.getElementById('guidedAccLabel');
@@ -133,7 +129,7 @@ const guidedHint = document.getElementById('guidedHint');
 const guidedPrompt = document.getElementById('guidedPrompt');
 const guidedPromptMsg = document.getElementById('guidedPromptMsg');
 const guidedPromptContinue = document.getElementById('guidedPromptContinue');
-// Guided decision and step UI
+
 const guidedDecision = document.getElementById('guidedDecision');
 const guidedPracticeAgainBtn = document.getElementById('guidedPracticeAgainBtn');
 const guidedPhaseContinueBtn = document.getElementById('guidedPhaseContinueBtn');
@@ -143,34 +139,32 @@ const guidedStepBoth = document.getElementById('guidedStepBoth');
 const guidedScopeEl = document.getElementById('guidedScope');
 const guidedOverallBar = document.getElementById('guidedOverallBar');
 const guidedOverallLabel = document.getElementById('guidedOverallLabel');
-// Accuracy overlay elements
+
 const accuracyOverlay = document.getElementById('accuracyOverlay');
 const accOvPercentEl = document.getElementById('accOvPercent');
 const accOvTimingEl = document.getElementById('accOvTiming');
 const accOvReplayBtn = document.getElementById('accReplayBtn');
 const accOvContinueBtn = document.getElementById('accContinueBtn');
 const accOvUnlockHint = document.getElementById('accOvUnlockHint');
-// Guided config inputs
-// Section length UI removed; fixed to 20s
+
 const guidedSectionLenInput = null;
-// Strict mode and threshold UI removed
+
 const guidedStrictToggle = null;
 const guidedAccThresholdInput = null;
 const guidedAccThresholdLabel = null;
 
 const effectiveKeyLabel = document.getElementById('effectiveKeyLabel');
-// Optional visual latency fine-tuning
+
 const visualLatencyInput = document.getElementById('visualLatencyOffset');
 const visualLatencyLabel = document.getElementById('visualLatencyLabel');
-let VISUAL_LATENCY = 0; // seconds; positive = advance visuals (hit earlier)
+let VISUAL_LATENCY = 0; 
 
-// Multi-track warning modal elements
 const multiTrackModal = document.getElementById('multiTrackModal');
 const multiTrackText = document.getElementById('multiTrackText');
 const multiTrackTitle = document.getElementById('multiTrackTitle');
 const multiTrackCancel = document.getElementById('multiTrackCancel');
 const multiTrackContinue = document.getElementById('multiTrackContinue');
-// Walkthrough elements
+
 const walkthroughWelcome = document.getElementById('walkthroughWelcome');
 const walkthroughStart = document.getElementById('walkthroughStart');
 const walkthroughSkip = document.getElementById('walkthroughSkip');
@@ -198,10 +192,10 @@ let HEIGHT = 0;
 const KEYBOARD_HEIGHT = 90; 
 let NOTE_FALL_DURATION = 4; 
 const HIT_LINE_Y = HEIGHT - KEYBOARD_HEIGHT - 4; 
-// Feature flags
-const LANDING_FLASH_ENABLED = false; // disable landing flashes to avoid any flicker
-const TRAILS_ENABLED = false;        // disable frame trails to avoid composite artifacts
-const SHADOWS_ENABLED = false;       // disable shadow/glow rendering to avoid flashes
+
+const LANDING_FLASH_ENABLED = false; 
+const TRAILS_ENABLED = false;        
+const SHADOWS_ENABLED = false;       
 
 const TRACK_COLORS = [
   "#60a5fa", 
@@ -218,16 +212,16 @@ const app = {
   guided: {
     enabled: false,
     hasSeparateHands: false,
-    sections: [], // time slices only: {label, start, end}
-    stages: [],   // cumulative learning stages: {index, mastery:{left,right,both}, accByStage:{...}, lastTempo:number}
+    sections: [], 
+    stages: [],   
     currentIndex: 0,
-    stage: 'left', // 'left'|'right'|'both'
-    progressKey: null, // localStorage key
+    stage: 'left', 
+    progressKey: null, 
     sectionLenSec: 20,
-    // Overlay/input lock state during end-of-section summary
+
     inputLocked: false,
     overlayUnlockAt: 0,
-  // strictMode/accThreshold removed from UI; continue is always available
+
   },
   midi: undefined,
   duration: 0,
@@ -241,16 +235,16 @@ const app = {
   keyGlow: new Map(), 
   upcomingKeys: new Set(), 
   _lastLandingFlash: new Map(), 
-  renderToken: 0, // increments on each song load to invalidate old scheduled visuals
+  renderToken: 0, 
   pitch: {
     transpose: 0,
-    // Target key selection (what user wants to play in)
+
     keyTonic: 0,
     keyScale: 'major',
-    // Original song key (from detection), used as transpose baseline
+
     detectedTonic: null,
     detectedScale: null,
-    // Optional persisted original key baseline
+
     originalTonicPref: null,
     originalScalePref: null,
   },
@@ -267,19 +261,19 @@ const app = {
     lastWaitTime: -1,
     stats: { total: 0, correct: 0, misses: [], timings: [] },
     groupTimeById: new Map(),
-    inputOffsetSec: 0, // calibration: positive means user's input arrives late (so shift forward)
-  hitWindowSec: 0.30, // acceptance window for early/late hits (±)
-    chordWindowSec: 0.06, // grouping window for chords
+    inputOffsetSec: 0, 
+  hitWindowSec: 0.30, 
+    chordWindowSec: 0.06, 
     _waitTimeout: null,
-    autoContinue: false, // if true, auto-continue after grace when user doesn't complete chord
-    octaveTol: 1, // accept ±octaves for matching (0..2)
-    // Smart play-ahead
+    autoContinue: false, 
+    octaveTol: 1, 
+
     lookaheadSec: 2.5,
-    earlyHits: new Map(), // index -> Set<midi> matched early
-    skipWaitFor: new Set(), // indices that should not pause when reached
-    satisfiedGroups: new Set(), // group indices satisfied this loop
-    lastLoopAccPercent: 0, // persist last loop's accuracy for steady UI at loop restart
-    matchedIds: new Set(), // per-loop set of matched expected note ids
+    earlyHits: new Map(), 
+    skipWaitFor: new Set(), 
+    satisfiedGroups: new Set(), 
+    lastLoopAccPercent: 0, 
+    matchedIds: new Set(), 
   },
   midiIO: {
     access: null,
@@ -291,13 +285,13 @@ const app = {
     output: null,
     thru: false,
     tailMs: 60,
-    // Echo guard to prevent MIDI loopback from causing double-highlights
-    _echo: new Map(), // key: `${ch}:${midi}:on|off` -> last sent time (sec)
+
+    _echo: new Map(), 
     echoWindowSec: 0.3,
   },
   pedal: {
-    sustainDown: new Map(), // channel -> boolean
-    sustained: new Map(),   // channel -> Set<midi>
+    sustainDown: new Map(), 
+    sustained: new Map(),   
   }
 };
 app._originalBpm = 120; 
@@ -377,7 +371,7 @@ function applyPrefsToUI() {
 
   const mode = loadPref('mode', null);
   if (mode && modeSelect) modeSelect.value = mode;
-  // practice toggle removed
+
   const noteWait = loadPref('noteWait', null);
   if (noteWait != null && noteWaitToggle) noteWaitToggle.checked = !!noteWait;
 
@@ -415,19 +409,16 @@ function applyPrefsToUI() {
     if (glowIntensityLabel) glowIntensityLabel.textContent = `${parseFloat(glow).toFixed(1)}x`;
   }
 
-  // Timing calibration
   const inOff = loadPref('inputOffsetMs', 0);
   app.practice.inputOffsetSec = clamp((parseInt(inOff, 10) || 0) / 1000, -0.4, 0.4);
   if (inputOffsetMsInput) inputOffsetMsInput.value = String(parseInt(inOff, 10) || 0);
   if (inputOffsetLabel) inputOffsetLabel.textContent = `${parseInt(inOff, 10) || 0} ms`;
 
-  // Octave tolerance
   const oTol = clamp(parseInt(loadPref('octaveTol', 1), 10) || 0, 0, 2);
   app.practice.octaveTol = oTol;
   if (octaveTolInput) octaveTolInput.value = String(oTol);
   if (octaveTolLabel) octaveTolLabel.textContent = `±${oTol} oct`;
 
-  // Pitch & Key
   const tr = loadPref('transpose', null);
   if (tr != null && transposeInput) {
     transposeInput.value = String(tr);
@@ -444,7 +435,7 @@ function applyPrefsToUI() {
     keyScaleSelect.value = ks;
     app.pitch.keyScale = ks;
   }
-  // Load optional original key (baseline) if stored
+
   const ok = loadPref('originalTonic', null);
   if (ok != null) app.pitch.originalTonicPref = parseInt(ok, 10) || 0;
   const os = loadPref('originalScale', null);
@@ -468,7 +459,6 @@ function applyPrefsToUI() {
   const loopEnd = loadPref('loopEnd', null);
   if (loopEnd != null && loopEndInput) loopEndInput.value = String(loopEnd);
 
-  // Mirror loop prefs into runtime state so loop works without requiring a UI change event
   if (loopToggle) app.practice.loop.enabled = !!loopToggle.checked;
   if (loopStartInput) app.practice.loop.start = Math.max(0, parseFloat(loopStartInput.value || '0') || 0);
   if (loopEndInput) app.practice.loop.end = Math.max(0, parseFloat(loopEndInput.value || '0') || 0);
@@ -485,7 +475,6 @@ function applyPrefsToUI() {
   app.midiIO.inId = loadPref('midiInId', app.midiIO.inId);
   app.midiIO.outId = loadPref('midiOutId', app.midiIO.outId);
 
-  // Guided config: section length fixed to 20s (no UI); strict/threshold removed
   const glen = 20;
   app.guided.sectionLenSec = glen;
 }
@@ -504,12 +493,12 @@ fileInput.addEventListener("change", async (e) => {
       const safe = sanitizeTimeSignatureMeta(bytes);
       midi = new Midi(safe.buffer);
     }
-    // Warn if too many tracks (likely multiple instruments)
+
     if (!(await shouldProceedWithMultiTrack(midi))) {
       showOverlay("Loading cancelled.");
       return;
     }
-    // Persist the song name BEFORE initializing so per-song keys use the correct normalized title
+
     try {
       localStorage.setItem('km_last_midi_name', file.name);
       updatePreviousButtonLabel();
@@ -521,7 +510,7 @@ fileInput.addEventListener("change", async (e) => {
       const bytes = new Uint8Array(arrayBuffer);
       const b64 = btoa(String.fromCharCode(...bytes));
       localStorage.setItem('km_last_midi_b64', b64);
-      // name already stored above; keep base64 for quick reloads
+
     } catch {}
   } catch (err) {
     console.error(err);
@@ -559,7 +548,7 @@ btnLoadPrevious?.addEventListener('click', async () => {
 });
 
 function initFromMidi(midi) {
-  // Stop any previous playback and clear visuals to avoid lingering highlights
+
   try {
     Tone.Transport.stop();
     Tone.Transport.cancel();
@@ -580,7 +569,6 @@ function initFromMidi(midi) {
     drawKeyboard();
   } catch {}
 
-  // Bump render token to invalidate any previously scheduled callbacks
   app.renderToken = (app.renderToken || 0) + 1;
 
   app.midi = midi;
@@ -593,7 +581,6 @@ function initFromMidi(midi) {
   scoreEl.textContent = String(app.score);
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
 
-  // Reset transpose to zero for each newly loaded song
   app.pitch.transpose = 0;
   savePref('transpose', 0);
   if (transposeInput) transposeInput.value = '0';
@@ -661,7 +648,6 @@ function initFromMidi(midi) {
 
   buildPracticeGroups();
 
-  // Guided: initialize time sections (~20s each) and detection of hand separation
   try {
     const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
     const base = String(name).replace(/\.[^/.]+$/, '').trim();
@@ -672,7 +658,7 @@ function initFromMidi(midi) {
 
   const hasTwoOrMore = (app.tracks?.length || 0) > 1;
   app.guided.hasSeparateHands = hasTwoOrMore;
-  const secLen = 20; // fixed
+  const secLen = 20; 
   app.guided.sectionLenSec = secLen;
   const count = Math.max(1, Math.ceil(app.duration / secLen));
   app.guided.sections = Array.from({length: count}, (_, i) => {
@@ -680,19 +666,18 @@ function initFromMidi(midi) {
     const end = Math.min(app.duration, (i + 1) * secLen);
     return { label: `Section ${i+1}`, start, end };
   });
-  // Build cumulative-learning stages (one per section)
+
   app.guided.stages = Array.from({length: count}, (_, i) => ({
     index: i+1,
     mastery: { left: !hasTwoOrMore, right: !hasTwoOrMore, both: false },
     accByStage: { left: 0, right: 0, both: 0 },
     lastTempo: 1
   }));
-  app.guided.currentIndex = 0; // current stage index
+  app.guided.currentIndex = 0; 
   app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
   restoreGuidedProgress();
   updateGuidedUI();
 
-  // Ensure loop defaults are sensible after loading a MIDI
   if (app.practice.loop.enabled) {
     if (!(app.practice.loop.end > app.practice.loop.start)) {
       app.practice.loop.start = 0;
@@ -702,24 +687,23 @@ function initFromMidi(midi) {
     }
   }
 
-  // Auto-detect key on load (set as default for this song)
   const r = detectKeyFromMidi();
   const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
   if (r) {
     app.pitch.detectedTonic = r.tonic;
     app.pitch.detectedScale = r.scale;
     if (detectedKeyLabel) detectedKeyLabel.textContent = `${names[r.tonic]} ${r.scale}`;
-    // Always set the song's key to the detected key on new load
+
     app.pitch.keyTonic = r.tonic;
     app.pitch.keyScale = r.scale;
     if (keyTonicSelect) keyTonicSelect.value = String(r.tonic);
     if (keyScaleSelect) keyScaleSelect.value = r.scale;
     savePref('keyTonic', app.pitch.keyTonic);
     savePref('keyScale', app.pitch.keyScale);
-    // Persist baseline original key
+
     app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
     app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
-    // Ensure transpose remains zero for new song (effective key == original detected)
+
     app.pitch.transpose = 0;
     savePref('transpose', 0);
     if (transposeInput) transposeInput.value = '0';
@@ -728,7 +712,7 @@ function initFromMidi(midi) {
     updateEffectiveKeyLabel();
   } else if (detectedKeyLabel) {
     detectedKeyLabel.textContent = '—';
-    // Fall back to C major with zero transpose
+
     app.pitch.keyTonic = 0;
     app.pitch.keyScale = 'major';
     savePref('keyTonic', 0);
@@ -743,13 +727,11 @@ function initFromMidi(midi) {
     updateEffectiveKeyLabel();
   }
 
-  // Finally, restore any per-song overrides (transpose/key) if present
   restoreSongConfig();
-  // Ensure a baseline song config is saved for this title
+
   persistSongConfig();
 }
 
-// Per-song config persistence
 function restoreSongConfig() {
   try {
     if (!app.songCfgKey) return;
@@ -777,7 +759,7 @@ function restoreSongConfig() {
       changed = true;
     }
     if (changed) {
-      // Rebuild visuals/groups with restored settings
+
       clearEarlyLookaheadState?.();
       buildPracticeGroups?.();
       rescheduleTransport?.();
@@ -855,14 +837,13 @@ function buildTrackUI() {
   });
 }
 
-// Guided helpers and events (top-level)
 function restoreGuidedProgress() {
   if (!app.guided.progressKey) return;
   try {
     const raw = localStorage.getItem(app.guided.progressKey);
     if (!raw) return;
     const data = JSON.parse(raw);
-    // Preferred: stages array (cumulative learning)
+
     if (Array.isArray(data.stages) && data.stages.length) {
       const n = Math.min(app.guided.sections.length, data.stages.length);
       app.guided.stages = Array.from({length: app.guided.sections.length}, (_, i) => {
@@ -876,7 +857,7 @@ function restoreGuidedProgress() {
       });
       return;
     }
-    // Backward-compat: legacy per-section structure
+
     if (data?.sections) {
       app.guided.stages = app.guided.sections.map((_, i) => {
         const saved = data.sections[String(i+1)] || {};
@@ -894,7 +875,7 @@ function restoreGuidedProgress() {
 function persistGuidedProgress() {
   if (!app.guided.progressKey) return;
   const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
-  // New: stages array for cumulative learning
+
   const stages = app.guided.stages.map(st => ({
     stage: st.index,
     left: !!st.mastery.left,
@@ -914,7 +895,7 @@ function persistGuidedProgress() {
     title: name.replace(/\.[^/.]+$/, ''),
     separateHands: !!app.guided.hasSeparateHands,
     stages,
-    // Keep legacy 'sections' for older dashboards (best-effort projection)
+
     sections: Object.fromEntries(app.guided.stages.map((st, i) => [String(i+1), {
       left: !!st.mastery.left,
       right: !!st.mastery.right,
@@ -942,10 +923,7 @@ function updateGuidedUI() {
     guidedHint.textContent = app.guided.stage === 'left' ? 'Now practice your left hand.' : app.guided.stage === 'right' ? 'Now practice your right hand.' : 'Try combining both hands!';
   }
   if (guidedScopeEl) guidedScopeEl.textContent = `Scope: ${scopeLabel}`;
-  // Compute accuracy to display:
-  // 1) If current stats exist, show live percent
-  // 2) Else, show last saved accuracy for this section/stage (persisted)
-  // 3) Else, fall back to last loop percent or 0
+
   const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
   const saved = (stage.accByStage && typeof stage.accByStage[app.guided.stage] === 'number') ? stage.accByStage[app.guided.stage] : null;
   const fallback = app.practice.lastLoopAccPercent || 0;
@@ -958,7 +936,7 @@ function updateGuidedUI() {
   }
   const mastered = isStageMastered(app.guided.currentIndex, app.guided.stage);
   if (guidedNextStageBtn) guidedNextStageBtn.classList.toggle('hidden', !mastered);
-  // Update step pills
+
   if (guidedStepLeft && guidedStepRight && guidedStepBoth) {
     const setPill = (el, active, done) => {
       el.classList.remove('bg-gray-800','border-gray-700','bg-blue-600','bg-emerald-600');
@@ -971,7 +949,7 @@ function updateGuidedUI() {
     setPill(guidedStepRight, app.guided.stage==='right', !!stage.mastery.right);
     setPill(guidedStepBoth, app.guided.stage==='both', !!stage.mastery.both);
   }
-  // Update overall progress
+
   const separate = !!app.guided.hasSeparateHands;
   const totalPhases = (app.guided.stages.length || 0) * (separate ? 3 : 1);
   const completedPhases = app.guided.stages.reduce((a, st) => {
@@ -990,7 +968,7 @@ function isStageMastered(index, stage) {
 }
 
 function markStageOnContinue() {
-  // User chose to continue; record last accuracy and mark mastered unconditionally
+
   const { total, correct } = app.practice.stats || { total: 0, correct: 0 };
   const percent = total ? Math.round((correct / total) * 100) : (app.practice.lastLoopAccPercent || 0);
   const st = app.guided.stages[app.guided.currentIndex];
@@ -1003,8 +981,7 @@ function markStageOnContinue() {
 }
 
 function evaluateLoopPerformance() {
-  // Calculate accuracy per-note for notes within [start, end),
-  // giving full credit for satisfied groups and partial credit otherwise.
+
   const loopStart = app.practice.loop?.start ?? 0;
   const loopEnd = app.practice.loop?.end ?? app.duration;
   const groups = app.practice.groups || [];
@@ -1019,10 +996,10 @@ function evaluateLoopPerformance() {
     const sz = g.notes?.length || 0;
     expected += sz;
     if (app.practice.satisfiedGroups.has(i)) {
-      // Full credit if group satisfied (either by early hits or during wait)
+
       correct += sz;
     } else if (Array.isArray(g.ids) && g.ids.length) {
-      // Partial credit: count matched ids belonging to this group
+
       for (const id of g.ids) if (matched.has(id)) correct += 1;
     }
   }
@@ -1035,9 +1012,9 @@ function evaluateLoopPerformance() {
   if (st) {
     if (st.accByStage) st.accByStage[app.guided.stage] = percent;
   }
-  // Adaptive pacing
+
   const currentFactor = parseFloat(speed.value || '1') || 1;
-  const thrPct = 90; // hidden default for tempo nudge
+  const thrPct = 90; 
   if (percent >= thrPct) {
     const next = clamp(currentFactor + 0.1, 1.0, 1.3);
     if (next > currentFactor + 1e-6) {
@@ -1046,7 +1023,7 @@ function evaluateLoopPerformance() {
       showOverlay(`Great job! Increasing pace slightly… (${Math.round(next*100)}%)`, 1200);
     }
     if (st) st.lastTempo = next;
-    // Also mark stage mastered to unlock Next, but don't auto-advance
+
     if (st) st.mastery[app.guided.stage] = true;
     persistGuidedProgress();
   } else if (percent < Math.max(80, thrPct - 10) && currentFactor > 1.0) {
@@ -1059,21 +1036,20 @@ function evaluateLoopPerformance() {
     st.lastTempo = currentFactor;
     persistGuidedProgress();
   }
-  // Prepare for next loop iteration
+
   app.practice.satisfiedGroups.clear();
   updateGuidedUI();
-  // Show guided decision buttons with encouraging toast
+
   if (percent >= 98) showOverlay(`🔥 Accuracy: ${percent}% – Ready to continue?`, 1400);
   else showOverlay(`🎯 Accuracy: ${percent}%`, 1200);
   showGuidedDecision(percent);
 }
 
-// ---- Guided section accuracy overlay ---------------------------------------
 function avgTimingMs() {
   const arr = app.practice?.stats?.timings || [];
   if (!arr.length) return 0;
   const mean = arr.reduce((a,b)=>a+b,0) / arr.length;
-  return Math.round(mean * 1000); // signed: +late, -early
+  return Math.round(mean * 1000); 
 }
 
 function setOverlayButtonsEnabled(en) {
@@ -1084,14 +1060,14 @@ function setOverlayButtonsEnabled(en) {
 
 function showAccuracyOverlay() {
   if (!accuracyOverlay) return;
-  // Populate numbers
+
   const total = Number(app.practice?.stats?.total) || 0;
   const correct = Number(app.practice?.stats?.correct) || 0;
-  const percent = total > 0 ? Math.round((correct/total)*100) : 0; // no fallback to avoid stale 100%
+  const percent = total > 0 ? Math.round((correct/total)*100) : 0; 
   const avgMs = avgTimingMs();
   if (accOvPercentEl) accOvPercentEl.textContent = String(percent);
   if (accOvTimingEl) accOvTimingEl.textContent = `${avgMs > 0 ? '+' : ''}${avgMs} ms`;
-  // Lock inputs for at least 5s
+
   app.guided.inputLocked = true;
   app.guided.overlayUnlockAt = performance.now() + 5000;
   setOverlayButtonsEnabled(false);
@@ -1113,15 +1089,14 @@ function showAccuracyOverlay() {
     if (interval) { try{ clearInterval(interval);}catch{} interval = null; }
     accuracyOverlay.classList.add('hidden');
     app.guided.inputLocked = false;
-    // Allow loop engine to progress again
+
     if (app.practice?.loop) app.practice.loop._pending = false;
   };
 
-  // Button handlers
   accOvReplayBtn?.addEventListener('click', async () => {
     if (performance.now() < app.guided.overlayUnlockAt) return;
     cleanup();
-    // Reset stats and restart current loop
+
     app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
     app.practice.matchedIds = new Set();
     clearEarlyLookaheadState();
@@ -1137,18 +1112,17 @@ function showAccuracyOverlay() {
   accOvContinueBtn?.addEventListener('click', async () => {
     if (performance.now() < app.guided.overlayUnlockAt) return;
     cleanup();
-    // Mark and move to next guided phase/section
+
     guidedPhaseContinueBtn?.click();
   }, { once: true });
 }
 
-// Guided loop decision controls
 function showGuidedDecision(percent) {
   if (!guidedDecision) return;
   guidedDecision.classList.remove('hidden');
   const text = (app.guided.stage==='left') ? '➡ Continue to Right Hand' : (app.guided.stage==='right') ? '➡ Continue to Both Hands' : '➡ Continue to Next Section';
   if (guidedPhaseContinueBtn) guidedPhaseContinueBtn.textContent = text;
-  // Continue is always available; no strict gating
+
   if (guidedPhaseContinueBtn) {
     guidedPhaseContinueBtn.disabled = false;
     guidedPhaseContinueBtn.classList.remove('opacity-60');
@@ -1157,7 +1131,7 @@ function showGuidedDecision(percent) {
 
 guidedPracticeAgainBtn?.addEventListener('click', () => {
   guidedDecision?.classList.add('hidden');
-  // Keep same stage; loop already restarts
+
 });
 
 guidedPhaseContinueBtn?.addEventListener('click', () => {
@@ -1194,7 +1168,7 @@ function setGuidedLoopToCurrentStage() {
   savePref('loopEnabled', true);
   savePref('loopStart', 0);
   savePref('loopEnd', end);
-  // Ensure transport starts at the beginning of this section
+
   try {
     Tone.Transport.seconds = 0;
     updateTimeUI(0);
@@ -1212,13 +1186,13 @@ function applyGuidedStageHand() {
 
 function startGuidedPracticeCycle() {
   if (!app.guided.enabled) return;
-  // Force practice mode and note-wait
+
   if (modeSelect) modeSelect.value = 'practice';
   app.practice.noteWait = true;
   if (noteWaitToggle) noteWaitToggle.checked = true;
-  // In note-wait guided practice, do NOT auto-continue — wait for user to play
+
   app.practice.autoContinue = false;
-  // reset stats for this section run
+
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
   app.practice.matchedIds = new Set();
   app.practice.lastLoopAccPercent = 0;
@@ -1226,7 +1200,7 @@ function startGuidedPracticeCycle() {
   updateGuidedUI();
   setGuidedLoopToCurrentStage();
   applyGuidedStageHand();
-  // Restore last tempo used for this section
+
   const st = app.guided.stages[app.guided.currentIndex];
   const factor = clamp(Number(st?.lastTempo) || 1, 0.5, 1.5);
   if (speed) { speed.value = String(factor); speed.dispatchEvent(new Event('input')); }
@@ -1237,12 +1211,12 @@ function startGuidedPracticeCycle() {
 guidedToggleBtn?.addEventListener('click', () => {
   app.guided.enabled = !app.guided.enabled;
   guidedPanel?.classList.toggle('hidden', !app.guided.enabled);
-  // When opening, ensure custom position (if saved) is applied and z-index stays above fullscreen overlay
+
   if (app.guided.enabled) {
     try { applyGuidedPanelSavedPosition(); } catch {}
   }
   if (app.guided.enabled) {
-    // Prompt depending on tracks
+
     if (guidedPrompt && guidedPromptMsg) {
       if (app.guided.hasSeparateHands) {
         guidedPromptMsg.textContent = "Detected separate left and right hand tracks. You’ll learn this song step-by-step — left, right, and then both together!";
@@ -1252,7 +1226,7 @@ guidedToggleBtn?.addEventListener('click', () => {
       guidedPrompt.classList.remove('hidden');
     }
     startGuidedPracticeCycle();
-    // Ensure a dashboard entry exists immediately when Guided starts
+
     persistGuidedProgress();
   }
 });
@@ -1261,9 +1235,8 @@ guidedPromptContinue?.addEventListener('click', () => {
   guidedPrompt?.classList.add('hidden');
 });
 
-// No strict gating; keep for compatibility with previous code paths
 function markStageIfThreshold() {
-  // Intentionally empty: Continue is always enabled
+
 }
 
 guidedPrevSecBtn?.addEventListener('click', () => {
@@ -1291,11 +1264,11 @@ guidedUnderstoodBtn?.addEventListener('click', () => {
     if (!st.understoodByStage) st.understoodByStage = { left: false, right: false, both: false };
     st.understoodByStage[app.guided.stage] = true;
   }
-  // If current stats meet threshold, mark stage as mastered
+
   markStageIfThreshold();
   updateGuidedUI();
   persistGuidedProgress();
-  // Progress flow: move to next stage when user indicates understanding
+
   if (!app.guided.hasSeparateHands) {
     guidedNextSecBtn?.click();
   } else {
@@ -1307,16 +1280,16 @@ guidedUnderstoodBtn?.addEventListener('click', () => {
 });
 
 guidedNextStageBtn?.addEventListener('click', () => {
-  // Advance through left -> right -> both, or only both on single-track
+
   if (!app.guided.hasSeparateHands) {
-    // advance to next section
+
     guidedNextSecBtn?.click();
     return;
   }
   if (app.guided.stage === 'left') app.guided.stage = 'right';
   else if (app.guided.stage === 'right') app.guided.stage = 'both';
   else {
-    // all done, next section
+
     guidedNextSecBtn?.click();
     return;
   }
@@ -1340,7 +1313,7 @@ function scheduleIfNeeded() {
     filtered.forEach((n) => {
       const time = n.time + now;
       Tone.Transport.schedule((schedTime) => {
-        if (token !== app.renderToken) return; // stale schedule, abort
+        if (token !== app.renderToken) return; 
         const midiOut = applyTranspose(n.midi);
         if (shouldUseLocalAudio() && synth && modeSelect?.value === 'listen') {
           const dur = Math.max(0.02, Number(n.duration) || 0);
@@ -1351,10 +1324,10 @@ function scheduleIfNeeded() {
             n.velocity
           );
         }
-        // Only send scheduled playback to external MIDI in Listen mode
+
         if (modeSelect?.value === 'listen') {
           sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel, schedTime);
-          // Schedule visual key-on precisely on the audio clock for robustness across rewinds/loops
+
           Tone.Draw.schedule(() => {
             if (token !== app.renderToken) return;
             if (modeSelect?.value !== 'listen') return;
@@ -1363,7 +1336,6 @@ function scheduleIfNeeded() {
         }
       }, time);
 
-      // Schedule visual key-off on the transport timeline (no tail) and draw on the audio clock
       const visualOffAt = time + Math.max(0.02, Number(n.duration) || 0);
       Tone.Transport.schedule((offSchedTime) => {
         if (token !== app.renderToken) return;
@@ -1376,7 +1348,6 @@ function scheduleIfNeeded() {
         }, offSchedTime);
       }, visualOffAt);
 
-      // Schedule external MIDI note-off precisely on the transport timeline (with optional tail)
       Tone.Transport.schedule((offTime) => {
         if (token !== app.renderToken) return;
         if (modeSelect?.value === 'listen') {
@@ -1384,14 +1355,12 @@ function scheduleIfNeeded() {
           sendNoteOff(midiOut, t.channel, offTime);
         }
       }, time + Math.max(0.02, Number(n.duration) || 0) + (app.midiIO.tailMs / 1000));
-      // Do not accumulate totals at schedule-time; accuracy is computed per loop window
+
     });
   });
 
   if (app.midi) {
-    // Schedule sustain (CC64) for all tracks/channels regardless of mute/solo.
-    // Pedal is a per-channel controller that affects overlapping tracks; gating by
-    // track enablement can leave sustain-down state stuck and cause lingering highlights.
+
     app.midi.tracks.forEach((mt, mi) => {
       const channel = (typeof mt.channel === 'number') ? mt.channel : (app.tracks[mi]?.channel ?? 0);
       const cc64Arr = mt.controlChanges && (mt.controlChanges[64] || mt.controlChanges["64"]) || [];
@@ -1400,7 +1369,7 @@ function scheduleIfNeeded() {
         Tone.Transport.schedule(() => {
           if (token !== app.renderToken) return;
           if (modeSelect?.value !== 'listen') return;
-          // In Listen mode, follow song sustain and forward CC
+
           updateSustainState(channel, val >= 64, getPlaybackTime());
           sendCC(64, val, channel);
         }, (cc.time ?? 0) + now);
@@ -1422,8 +1391,6 @@ function scheduleIfNeeded() {
     const t = getPlaybackTime();
     updateTimeUI(t);
 
-    // Staff scrolling removed; avoid calling undefined function
-
     if (app.practice.loop.enabled) {
       const loop = app.practice.loop;
       const { start, end, pauseMs } = loop;
@@ -1432,18 +1399,18 @@ function scheduleIfNeeded() {
         const wasRunning = (Tone.Transport.state === 'started');
         try { Tone.Transport.pause(); } catch {}
         if (loop._timer) { try { clearTimeout(loop._timer); } catch {} loop._timer = null; }
-        // In Guided mode, pause and show overlay instead of auto-restarting
+
         if (app.guided.enabled && modeSelect.value === 'practice') {
           try { evaluateLoopPerformance(); } catch {}
-          // Persist progress snapshot
+
           persistGuidedProgress?.();
-          // Clear satisfied marks for next attempt, keep stats until overlay action
+
           ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
           drawKeyboard();
           showAccuracyOverlay();
-          // Keep _pending true until user chooses Replay/Continue to avoid re-triggering
+
         } else {
-          // Legacy fallback: short pause then auto-loop
+
           loop._timer = setTimeout(() => {
             loop._timer = null;
             try { evaluateLoopPerformance(); } catch {}
@@ -1451,7 +1418,7 @@ function scheduleIfNeeded() {
             app.practice.matchedIds = new Set();
             clearEarlyLookaheadState();
             try { Tone.Transport.seconds = start; } catch {}
-            // Clear any lingering audio and visual state before restarting the loop
+
             try { panicAll(); } catch {}
             try {
               app.liveKeys.clear();
@@ -1494,7 +1461,7 @@ btnPlay.addEventListener("click", async () => {
   } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   scheduleIfNeeded();
-  // If loop is enabled (e.g., in Guided), start from loop.start when outside the window
+
   try {
     if (app.practice?.loop?.enabled) {
       const { start, end } = app.practice.loop;
@@ -1516,9 +1483,9 @@ btnPlay.addEventListener("click", async () => {
 btnPause.addEventListener("click", () => {
   Tone.Transport.pause();
   stopAnimation({ clear: false });
-  // Ensure no notes keep sounding (external MIDI or local synth)
+
   panicAll();
-  // Clear visual and sustain states to avoid stuck keys
+
   try {
     app.liveKeys.clear();
     app.keyGlow.clear();
@@ -1538,7 +1505,7 @@ btnStop.addEventListener("click", () => {
   panicAll();
   clearLoopTimer();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Play';
-  // Clear any lingering visual state
+
   app.liveKeys.clear();
   app.keyGlow.clear();
   app.upcomingKeys.clear();
@@ -1550,7 +1517,7 @@ btnRestart.addEventListener("click", () => {
   Tone.Transport.seconds = 0;
   clearLoopTimer();
   panicAll();
-  // Clear any lingering visual state
+
   app.liveKeys.clear();
   app.keyGlow.clear();
   app.upcomingKeys.clear();
@@ -1569,7 +1536,7 @@ progress.addEventListener("input", () => {
 
   Tone.Transport.seconds = t;
   updateTimeUI(t);
-  // Stop any lingering notes when scrubbing
+
   panicAll();
 
   ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
@@ -1591,7 +1558,7 @@ modeSelect.addEventListener("change", () => {
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
   rescheduleTransport();
   savePref('mode', modeSelect.value);
-  // practice toggle removed
+
 });
 
 noteWaitToggle?.addEventListener('change', () => {
@@ -1629,7 +1596,7 @@ midiClose?.addEventListener('click', () => midiModal?.classList.add('hidden'));
 openTransposeSettingsBtn?.addEventListener('click', () => transposeModal?.classList.remove('hidden'));
 transposeClose?.addEventListener('click', () => transposeModal?.classList.add('hidden'));
 refreshMIDI?.addEventListener('click', () => initMIDI(true));
-// practice toggle removed
+
 testNoteBtn?.addEventListener('click', () => {
 
   sendNoteOn(60, 100);
@@ -1644,9 +1611,6 @@ tailMsInput?.addEventListener('input', () => {
   app.midiIO.tailMs = v;
   if (tailMsLabel) tailMsLabel.textContent = `${v}ms`;
 });
-
-// Guided config handlers
-// Section length control removed; always 20s
 
 function showMidiTab() {
   if (!midiSettingsTab || !visualSettingsTab || !settingsTabMidi || !settingsTabVisuals) return;
@@ -1708,7 +1672,7 @@ fsPlayPause?.addEventListener('click', async () => {
     fsPlayPauseIcon.textContent = 'Play';
   } else {
     scheduleIfNeeded();
-    // Ensure we start inside loop window when enabled
+
     try {
       if (app.practice?.loop?.enabled) {
         const { start, end } = app.practice.loop;
@@ -1732,17 +1696,16 @@ noteOpacity?.addEventListener('input', () => { const v = parseFloat(noteOpacity.
 glowIntensity?.addEventListener('input', () => { const v = parseFloat(glowIntensity.value || '1'); savePref('glowIntensity', v); if (glowIntensityLabel) glowIntensityLabel.textContent = `${v.toFixed(1)}x`; });
 visualLatencyInput?.addEventListener('input', () => {
   const ms = parseInt(visualLatencyInput.value || '0', 10);
-  const sec = clamp(ms / 1000, -0.25, 0.25); // clamp to ±250ms
+  const sec = clamp(ms / 1000, -0.25, 0.25); 
   VISUAL_LATENCY = sec;
   savePref('visualLatencyOffset', sec);
   if (visualLatencyLabel) visualLatencyLabel.textContent = `${ms} ms`;
 });
 
-// --- Guided Panel Drag & Persist ------------------------------------------------
 const GUIDED_POS_KEY = 'km_guided_panel_pos_v1';
 
 function clampPanelPos(x, y) {
-  const pad = 8; // keep a bit of margin
+  const pad = 8; 
   const w = guidedPanel?.offsetWidth || 320;
   const h = guidedPanel?.offsetHeight || 200;
   const vw = window.innerWidth;
@@ -1759,7 +1722,7 @@ function applyGuidedPanelSavedPosition() {
     if (!raw) return;
     const { x, y } = JSON.parse(raw);
     const clamped = clampPanelPos(Number(x) || 0, Number(y) || 0);
-    // Switch from bottom-right utility classes to explicit top/left when custom position exists
+
     guidedPanel.classList.remove('right-3','bottom-3');
     guidedPanel.style.right = 'auto';
     guidedPanel.style.bottom = 'auto';
@@ -1783,7 +1746,7 @@ function makeGuidedPanelDraggable() {
     dragging = true;
     startX = e.clientX;
     startY = e.clientY;
-    // Get current left/top; if using bottom/right defaults, compute from bounding rect
+
     const rect = guidedPanel.getBoundingClientRect();
     if (guidedPanel.style.left) {
       origX = parseFloat(guidedPanel.style.left) || rect.left;
@@ -1792,7 +1755,7 @@ function makeGuidedPanelDraggable() {
       origX = rect.left;
       origY = rect.top;
     }
-    // Switch positioning mode to top/left if needed
+
     guidedPanel.classList.remove('right-3','bottom-3');
     guidedPanel.style.right = 'auto';
     guidedPanel.style.bottom = 'auto';
@@ -1815,14 +1778,13 @@ function makeGuidedPanelDraggable() {
     dragging = false;
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
-    // Persist final position
+
     const rect = guidedPanel.getBoundingClientRect();
     saveGuidedPanelPosition(rect.left, rect.top);
   };
 
   guidedPanelHeader.addEventListener('mousedown', onMouseDown);
 
-  // Re-clamp position on resize to keep panel on-screen
   window.addEventListener('resize', () => {
     if (!guidedPanel) return;
     const rect = guidedPanel.getBoundingClientRect();
@@ -1834,7 +1796,6 @@ function makeGuidedPanelDraggable() {
   });
 }
 
-// Initialize draggable + restore saved position
 try {
   makeGuidedPanelDraggable();
   applyGuidedPanelSavedPosition();
@@ -1965,10 +1926,8 @@ function drawNotes(currentTime) {
     ctx.fillRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
   }
 
-  // Grid lines feature removed
-
-  const FALL_DURATION = NOTE_FALL_DURATION; // seconds
-  const SPAWN_EARLY = 0.03; // small pre-spawn window for stability
+  const FALL_DURATION = NOTE_FALL_DURATION; 
+  const SPAWN_EARLY = 0.03; 
 
   const isSoloActive = app.tracks.some((t) => t.solo);
 
@@ -1986,15 +1945,14 @@ function drawNotes(currentTime) {
   const tNotes = t.notes.filter(n => handFilter(n));
 
   tNotes.forEach((n) => {
-    // Use grouped time for synchronized chord visuals if available
+
     const groupedTime = app.practice.groupTimeById?.get(n.id);
-    const start = (groupedTime != null ? groupedTime : n.time); // MIDI event time (audio note-on)
+    const start = (groupedTime != null ? groupedTime : n.time); 
     const end = n.time + n.duration;
     if (currentTime >= end) return;
 
-    // Visual start time: spawn so that the note reaches hit line exactly at 'start'
-    const startTime = start - FALL_DURATION; // baseline
-    if (currentTime < startTime - SPAWN_EARLY) return; // not yet spawned
+    const startTime = start - FALL_DURATION; 
+    if (currentTime < startTime - SPAWN_EARLY) return; 
 
   const visMidi = applyTranspose(n.midi);
   let x = midiToX(visMidi);
@@ -2005,13 +1963,12 @@ function drawNotes(currentTime) {
       const targetY = hitLineY();
       const startY = -40; 
 
-      // Progress of fall strictly from visual clock aligned to playback
       const tNorm = clamp((currentTime - startTime + VISUAL_LATENCY) / FALL_DURATION, 0, 1);
-      const eased = easeInQuad(tNorm); // smooth but precise
+      const eased = easeInQuad(tNorm); 
       const y = startY + (targetY - startY) * eased;
       let h;
       if (currentTime < start) {
-        h = baseH; // pre-hit: full height
+        h = baseH; 
       } else {
         const remaining = end - currentTime;
         const frac = clamp(remaining / n.duration, 0, 1);
@@ -2071,7 +2028,6 @@ function drawNotes(currentTime) {
         }
       }
 
-      // Only pre-glow upcoming keys when actually playing in Listen mode
       if (start - currentTime <= 0.4 && start - currentTime > 0) {
         app.upcomingKeys.add(visMidi);
         if (modeSelect?.value === 'listen' && Tone.Transport.state === 'started') {
@@ -2093,11 +2049,9 @@ function drawNotes(currentTime) {
   });
 }
 
-// drawBeatGrid removed
-
 function keyLandingFlash(midi, col) {
   const now = performance.now();
-  // Use a brighter variant of the note color instead of pure white to avoid white flashes
+
   const bright = shadeColor(col || '#60a5fa', 20);
   app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 60, color: bright });
   setTimeout(() => {
@@ -2156,7 +2110,6 @@ function setProgressPercent(pct) {
   } catch {}
 }
 
-// Clear any pending loop timers and reset loop state
 function clearLoopTimer() {
   const loop = app.practice?.loop;
   if (!loop) return;
@@ -2276,7 +2229,6 @@ function onMIDIMessage(e) {
   const now = Tone.Transport.seconds;
   const nowCal = now + (app.practice.inputOffsetSec || 0);
 
-  // During accuracy overlay lock, ignore input for visuals/detection but allow optional MIDI Thru
   if (app.guided?.inputLocked) {
     if (cmd === 0x90 && velocity > 0) {
       if (app.midiIO.thru) sendNoteOn(applyTranspose(note), Math.round(velocity * 127), ch);
@@ -2292,12 +2244,12 @@ function onMIDIMessage(e) {
   if (cmd === 0x90 && velocity > 0) {
     if (LOG_MIDI && console.debug) console.debug(`[LP] Note ${note} ON ch${ch} at ${now.toFixed(3)}`);
     const tNote = applyTranspose(note);
-    // In Listen mode, visuals are driven by the song; ignore inbound highlights entirely
+
     if (modeSelect?.value === 'listen') {
       if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127), ch);
       return;
     }
-    // Filter looped-back echoes of our own outbound messages
+
     if (isLikelyEcho('on', tNote, ch, now)) {
       return;
     }
@@ -2305,14 +2257,13 @@ function onMIDIMessage(e) {
     if (app.midiIO.thru) sendNoteOn(tNote, Math.round(velocity * 127), ch);
     checkNoteHit(tNote, nowCal);
 
-    // Smart play-ahead: credit hits for groups within lookahead window and skip their wait later
     if (modeSelect.value === 'practice' && app.practice.noteWait) {
       const ahead = findGroupsInLookahead(nowCal);
       const tol = app.practice.octaveTol || 0;
       for (const g of ahead) {
         let set = app.practice.earlyHits.get(g.index);
         if (!set) { set = new Set(); app.practice.earlyHits.set(g.index, set); }
-        // Mark if matches any required note by pitch class ±octaveTol
+
         for (const req of g.notes) {
           if (set.has(req)) continue;
           if (midiMatchesWithOctave(req, tNote, tol)) {
@@ -2325,7 +2276,6 @@ function onMIDIMessage(e) {
         }
       }
 
-      // Also allow slight early arming of the immediate upcoming group (within hit window)
       const near = findUpcomingGroupNearTime(nowCal);
       if (near) {
         if (!app.practice.waiting) {
@@ -2349,7 +2299,7 @@ function onMIDIMessage(e) {
           resumeFromGroupWait(now);
         }
       } else {
-        // Ignore extra notes during waiting (no penalty)
+
       }
     }
   } else if (cmd === 0x80 || (cmd === 0x90 && velocity === 0)) {
@@ -2379,7 +2329,7 @@ function updateSustainState(channel, isDown, now) {
   const wasDown = !!app.pedal.sustainDown.get(channel);
   app.pedal.sustainDown.set(channel, isDown);
   if (!isDown && wasDown) {
-    // Pedal released: flush sustained notes
+
     const set = app.pedal.sustained.get(channel);
     if (set && set.size) {
       for (const midi of [...set]) {
@@ -2399,7 +2349,7 @@ function ensureSustainSet(channel) {
 function handleNoteOnVisual(midi, channel, color) {
   app.liveKeys.add(midi);
   startKeyGlow(midi, true, color);
-  // Track for potential sustain
+
   ensureSustainSet(channel);
 }
 
@@ -2407,7 +2357,7 @@ function handleNoteOffVisual(midi, channel, color) {
   const sustain = !!app.pedal.sustainDown.get(channel);
   const set = ensureSustainSet(channel);
   if (sustain) {
-    // Defer release until pedal is lifted
+
     set.add(midi);
   } else {
     app.liveKeys.delete(midi);
@@ -2420,7 +2370,7 @@ function checkNoteHit(midi, timeSec) {
   if (!app.midi) return false;
   const calibration = app.practice.inputOffsetSec || 0;
   const window = (app.practice.hitWindowSec || BASE_TOLERANCE);
-  const tolerance = window; // already in seconds, applied around expected times
+  const tolerance = window; 
 
   const bucket = Math.round(timeSec * 10) / 10;
   const neighborBuckets = [bucket, Math.round((timeSec + 0.05) * 10) / 10, Math.round((timeSec - 0.05) * 10) / 10];
@@ -2430,7 +2380,7 @@ function checkNoteHit(midi, timeSec) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
     for (const exp of list) {
-      // expected is stored in original MIDI space; compare in transposed space
+
       if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, app.practice.octaveTol || 0) && Math.abs(exp.time - timeSec) <= tolerance) {
         exp.hit = true;
         matched = true;
@@ -2440,7 +2390,7 @@ function checkNoteHit(midi, timeSec) {
 
         startKeyGlow(midi, true, '#22c55e');
         setTimeout(() => startKeyGlow(midi, false, '#22c55e'), 140);
-        // Track matched id for per-note accuracy within current loop window
+
         try {
           const inLoop = app.practice.loop?.enabled ? (exp.time >= app.practice.loop.start && exp.time < app.practice.loop.end) : true;
           if (inLoop && exp.id) app.practice.matchedIds.add(exp.id);
@@ -2457,7 +2407,6 @@ function checkNoteHit(midi, timeSec) {
   return false;
 }
 
-// Accept if played matches expected within ±octaveTol octaves (same pitch class)
 function midiMatchesWithOctave(expected, played, octaveTol) {
   if (expected === played) return true;
   const tol = Math.max(0, Math.min(2, Number(octaveTol) || 0));
@@ -2466,16 +2415,15 @@ function midiMatchesWithOctave(expected, played, octaveTol) {
   return Math.abs(diff) <= tol * 12;
 }
 
-// During waiting, mark the matching required note as hit using octave tolerance
 function matchAndMarkRequired(playedMidi) {
   if (!app.practice.waiting) return false;
   const tol = app.practice.octaveTol || 0;
-  // Try to match against requiredSet and also record matched id for partial-credit accounting
+
   for (const req of app.practice.requiredSet) {
     if (app.practice.hitSet.has(req)) continue;
     if (midiMatchesWithOctave(req, playedMidi, tol)) {
       app.practice.hitSet.add(req);
-      // Also map this match to a concrete expected note id within the current group (if available)
+
       try {
         const gi = app.practice.currentIndex;
         const g = app.practice.groups?.[gi];
@@ -2497,9 +2445,9 @@ function matchAndMarkRequired(playedMidi) {
 }
 
 function flashKey(midi, ok) {
-  // Reduce UI spam to prevent jank in dense passages
+
   if (modeSelect?.value === 'practice') {
-    // In practice, rely on visual key glow; avoid overlay per note
+
     return;
   }
   const now = performance.now();
@@ -2544,7 +2492,7 @@ async function bootstrap() {
   try {
     setLoadingHeadline('Loading your practice setup…');
     setLoadingStatus('Loading preferences…');
-    // Migrate old LearnPiano keys to KeyMistry if present
+
     try {
       const oldPrefix = 'lp_pref_';
       for (let i = 0; i < localStorage.length; i++) {
@@ -2557,7 +2505,7 @@ async function bootstrap() {
           }
         }
       }
-      // Also migrate saved MIDI blobs and names
+
       const oldMidi = localStorage.getItem('lp_last_midi_b64');
       const oldName = localStorage.getItem('lp_last_midi_name');
       if (oldMidi && !localStorage.getItem('km_last_midi_b64')) localStorage.setItem('km_last_midi_b64', oldMidi);
@@ -2669,7 +2617,7 @@ function startKeyGlow(midi, pressed, color) {
   if (pressed) {
     app.keyGlow.set(midi, { state: 'fade-in', start: now, end: now + 100, color });
   } else {
-    // Faster fade-out for snappier release (~200ms)
+
     app.keyGlow.set(midi, { state: 'fade-out', start: now, end: now + 200, color: item.color || color });
   }
 }
@@ -2737,7 +2685,6 @@ async function doCountdownIfNeeded() {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// Warn users if a MIDI likely contains multiple instruments (more than 3 note-bearing tracks)
 function countNoteTracks(midi) {
   try {
     return midi?.tracks?.filter(t => Array.isArray(t.notes) && t.notes.length > 0).length || 0;
@@ -2769,18 +2716,17 @@ async function shouldProceedWithMultiTrack(midi) {
   ].join('\n');
   const ok = await openConfirmModal(msg, 'Multiple Instruments Detected');
   if (ok) {
-    // Gentle tip toast after continuing
+
     showOverlay('Tip: Use the Mute/Solo buttons in the Tracks panel to limit to piano parts.', 2000);
   }
   return ok;
 }
 
-// ===== Walkthrough (Driver.js) =====
 function closeWalkthroughWelcome() { walkthroughWelcome?.classList.add('hidden'); }
 function openWalkthroughWelcome() { walkthroughWelcome?.classList.remove('hidden'); }
 
 function getDriverSteps() {
-  // Build steps and filter out any missing elements to avoid "no steps" runtime error
+
   const defs = [
     { sel: '#uploadLabel', title: 'MIDI Upload', desc: 'Upload a MIDI file to start learning. Your file stays local and private.', side: 'bottom', align: 'start' },
     { sel: '#openMIDISettings', title: 'MIDI & Visual Settings', desc: 'Configure MIDI input/output, timing offsets, and visual preferences.', side: 'bottom', align: 'end' },
@@ -2804,15 +2750,15 @@ function getDriverSteps() {
 }
 
 async function startWalkthrough() {
-  // Resolve driver factory from CDN IIFE build or fallback
+
   let driverFactory = null;
   if (window.driver && window.driver.js && typeof window.driver.js.driver === 'function') {
     driverFactory = window.driver.js.driver;
   } else if (typeof window.driver === 'function') {
-    driverFactory = window.driver; // fallback if global exposes directly
+    driverFactory = window.driver; 
   }
   if (!driverFactory) {
-    // Wait for any async loader if present
+
     if (window._driverReady && typeof window._driverReady.then === 'function') {
       try { await window._driverReady; } catch {}
       if (window.driver && window.driver.js && typeof window.driver.js.driver === 'function') driverFactory = window.driver.js.driver;
@@ -2842,7 +2788,7 @@ async function startWalkthrough() {
   });
   try { driverObj.drive(); }
   catch (e) {
-    // Fallback: try highlighting the first step directly if drive is unavailable
+
     try { driverObj.highlight(steps[0]); } catch {}
   }
 }
@@ -2853,13 +2799,12 @@ function maybeAutoStartWalkthrough() {
     if (!done) {
       openWalkthroughWelcome();
     }
-  } catch { /* ignore */ }
+  } catch {  }
 }
 
-// Wire welcome modal
 walkthroughStart?.addEventListener('click', () => {
   closeWalkthroughWelcome();
-  // slight delay to ensure layout is stable
+
   setTimeout(startWalkthrough, 200);
 });
 walkthroughSkip?.addEventListener('click', () => {
@@ -2867,7 +2812,6 @@ walkthroughSkip?.addEventListener('click', () => {
   try { localStorage.setItem('km_walkthrough_done', 'true'); } catch {}
 });
 
-// Replay button
 helpWalkthroughBtn?.addEventListener('click', async () => {
   const ok = await openConfirmModal('Replay the walkthrough?', 'Replay Walkthrough');
   if (ok) {
@@ -2879,7 +2823,6 @@ helpWalkthroughBtn?.addEventListener('click', async () => {
   }
 });
 
-// Auto-start on first load once UI has initialized
 window.addEventListener('load', () => setTimeout(maybeAutoStartWalkthrough, 400));
 
 function initNoteWait() {
@@ -2916,13 +2859,12 @@ function buildPracticeGroups() {
   for (const g of groups) {
     for (const id of g.ids) app.practice.groupTimeById.set(id, g.time);
   }
-  // Reset smart play-ahead caches when groups rebuild
+
   app.practice.earlyHits = new Map();
   app.practice.skipWaitFor = new Set();
   app.practice.satisfiedGroups = new Set();
 }
 
-// Find the next chord/group near a given (possibly calibrated) time
 function findUpcomingGroupNearTime(tCal) {
   if (!Array.isArray(app.practice.groups) || !app.practice.groups.length) return null;
   const startIdx = Math.max(0, app.practice.currentIndex);
@@ -2937,13 +2879,12 @@ function findUpcomingGroupNearTime(tCal) {
   return null;
 }
 
-// Find all groups within lookahead window [tCal, tCal + lookahead]
 function findGroupsInLookahead(tCal) {
   const out = [];
   const list = app.practice.groups || [];
   const look = Math.max(0, app.practice.lookaheadSec || 0);
   if (!list.length || look <= 0) return out;
-  // Limit to current loop/section if enabled
+
   const loStart = app.practice.loop.enabled ? app.practice.loop.start : tCal;
   const loEnd = app.practice.loop.enabled ? app.practice.loop.end : (tCal + look);
   for (let i = 0; i < list.length; i++) {
@@ -2971,14 +2912,13 @@ function maybePauseForGroup(index) {
 
   if (t > g.time + 0.02) return;
 
-  // Smart play-ahead: if this group is marked to skip waiting, don't pause
   if (app.practice.skipWaitFor.has(index)) {
-    // If we were waiting for this index, mark satisfied and continue
+
     if (app.practice.waiting && app.practice.currentIndex === index) {
       app.practice.waiting = false;
       clearTimeout(app.practice._waitTimeout);
     }
-    // Credit correctness for this group once when reached
+
     if (!maybePauseForGroup._credited) maybePauseForGroup._credited = new Set();
     if (!maybePauseForGroup._credited.has(index)) {
       maybePauseForGroup._credited.add(index);
@@ -2991,7 +2931,6 @@ function maybePauseForGroup(index) {
     return;
   }
 
-  // If already in waiting for this group, check if satisfied; avoid unnecessary pauses
   if (app.practice.waiting && app.practice.currentIndex === index) {
     if (isCurrentChordSatisfied()) {
       app.practice.waiting = false;
@@ -3005,21 +2944,20 @@ function maybePauseForGroup(index) {
     app.practice.lastWaitTime = g.time;
   }
 
-  // Pause only if group not yet satisfied at its time
   if (!isCurrentChordSatisfied()) {
     Tone.Transport.pause();
-    // Safety: auto-continue after a short grace if not all notes were detected
+
     if (app.practice.autoContinue) {
       clearTimeout(app.practice._waitTimeout);
       app.practice._waitTimeout = setTimeout(() => {
         if (app.practice.waiting && app.practice.currentIndex === index && !isCurrentChordSatisfied()) {
-          // Count remaining notes as misses, then continue
+
           for (const n of app.practice.requiredSet) {
             if (!app.practice.hitSet.has(n)) app.practice.stats.misses.push({ midi: n, time: g.time });
           }
           resumeFromGroupWait(Tone.Transport.seconds);
         }
-      }, Math.max(600, (app.practice.hitWindowSec || BASE_TOLERANCE) * 2000)); // ~2x hit window, min 600ms
+      }, Math.max(600, (app.practice.hitWindowSec || BASE_TOLERANCE) * 2000)); 
     }
   }
 }
@@ -3036,7 +2974,6 @@ function resumeFromGroupWait(now) {
   app.practice.waiting = false;
   clearTimeout(app.practice._waitTimeout);
 
-  // Credit only the notes actually hit; full credit and satisfiedGroups only if the chord was fully matched
   try {
     const gi = app.practice.currentIndex;
     const required = app.practice.requiredSet || new Set();
@@ -3048,7 +2985,7 @@ function resumeFromGroupWait(now) {
       app.practice.satisfiedGroups.add(gi);
     }
   } catch {
-    // fall back: no extra credit
+
   }
   updateGuidedUI();
 
@@ -3074,7 +3011,6 @@ function showFeedback() {
   feedbackModal.classList.remove('hidden');
 }
 
-// ---- MIDI echo guard helpers ----
 function _echoKey(type, midi, channel) {
   return `${channel & 0x0f}:${midi & 0x7f}:${type}`;
 }
@@ -3096,7 +3032,7 @@ function isLikelyEcho(type, midi, channel, nowSec) {
 function _audioTimeToMidiTimestamp(audioTimeSec) {
   try {
     const ctx = Tone.getContext();
-    const nowAudio = ctx.now(); // seconds
+    const nowAudio = ctx.now(); 
     const nowMs = performance.now();
     const deltaMs = Math.max(0, (audioTimeSec - nowAudio) * 1000);
     return nowMs + deltaMs;
@@ -3131,21 +3067,21 @@ function sendCC(controller, value, channel = 0) {
 }
 
 function panicAll() {
-  // External MIDI: send sustain off, all notes off, and optionally all sound off/reset
+
   for (let ch = 0; ch < 16; ch++) {
-    sendCC(64, 0, ch); // sustain off
+    sendCC(64, 0, ch); 
     const out = app.midiIO.output;
     if (!out) continue;
-    try { out.send([0xB0 | ch, 123, 0]); } catch {} // All Notes Off (CC123)
-    try { out.send([0xB0 | ch, 120, 0]); } catch {} // All Sound Off (CC120)
-    try { out.send([0xB0 | ch, 121, 0]); } catch {} // Reset All Controllers (CC121)
+    try { out.send([0xB0 | ch, 123, 0]); } catch {} 
+    try { out.send([0xB0 | ch, 120, 0]); } catch {} 
+    try { out.send([0xB0 | ch, 121, 0]); } catch {} 
   }
-  // Local audio: release all voices immediately
+
   try { app.synths.forEach(s => s?.releaseAll?.()); } catch {}
 }
 
 function handColorForMidi(midi) {
-  // This function expects visual MIDI (already transposed if needed)
+
   return midi < 60 ? '#60a5fa' : '#fb923c';
 }
 
@@ -3196,7 +3132,6 @@ function shouldUseLocalAudio() {
 
 function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
 
-// Visual clock smoothing to avoid small jitters from Transport.seconds
 const _smoothClock = { est: 0, lastRaf: 0, lastState: 'stopped', lastTone: 0 };
 function getSmoothVisualTime() {
   const tone = getPlaybackTime();
@@ -3221,13 +3156,12 @@ function getSmoothVisualTime() {
   _smoothClock.lastRaf = now;
   _smoothClock.lastState = state;
   _smoothClock.lastTone = tone;
-  // Nudge towards the real transport time to correct drift gradually
+
   const err = clamp(tone - _smoothClock.est, -0.05, 0.05);
   _smoothClock.est += err * 0.2;
   return _smoothClock.est;
 }
 
-// ---------- Transpose & Key helpers ----------
 function applyTranspose(midi) {
   const t = app.pitch?.transpose || 0;
   return clamp(Math.round(midi + t), 0, 127);
@@ -3266,18 +3200,18 @@ function detectKeyFromMidi() {
 }
 
 function getOriginalTonic() {
-  // Prefer persisted original key, then detected, else assume C
+
   if (app.pitch.originalTonicPref != null) return app.pitch.originalTonicPref;
   if (app.pitch.detectedTonic != null) return app.pitch.detectedTonic;
   return 0;
 }
 
 function computeTransposeForTarget(targetTonic) {
-  // We want: originalTonic + transpose ≡ targetTonic (mod 12)
+
   const orig = getOriginalTonic();
-  let t = ((targetTonic - orig) % 12 + 12) % 12; // 0..11
-  // Map to [-6, +6] where possible, then clamp to [-12, +12]
-  if (t > 6) t = t - 12; // prefer negative equivalent
+  let t = ((targetTonic - orig) % 12 + 12) % 12; 
+
+  if (t > 6) t = t - 12; 
   return clamp(t, -12, 12);
 }
 
@@ -3286,32 +3220,31 @@ function syncTransposeUI() {
   if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
 }
 
-// Bind transpose/key UI
 transposeInput?.addEventListener('input', () => {
   const v = parseInt(transposeInput.value || '0', 10) || 0;
   app.pitch.transpose = clamp(v, -12, 12);
   if (transposeLabel) transposeLabel.textContent = `${app.pitch.transpose}`;
   savePref('transpose', app.pitch.transpose);
   persistSongConfig();
-  // Keep selected key equal to effective key: selectedKey = original + transpose (mod 12)
+
   const newKey = ((getOriginalTonic() + app.pitch.transpose) % 12 + 12) % 12;
   app.pitch.keyTonic = newKey;
   if (keyTonicSelect) keyTonicSelect.value = String(newKey);
   savePref('keyTonic', newKey);
-  // Clear visual/key states to prevent stuck highlights after transposition
+
   try {
     app.liveKeys.clear();
     app.keyGlow.clear();
     app.upcomingKeys.clear();
     app._lastLandingFlash.clear();
-    // Clear sustained pedal buffers
+
     app.pedal.sustained.forEach(set => set.clear());
-    // Reset guided/practice waiting state so required notes re-evaluate in new transpose
+
     app.practice.waiting = false;
     app.practice.requiredSet.clear();
     app.practice.hitSet.clear();
   } catch {}
-  // Rebuild groups immediately with new transposed pitches
+
   clearEarlyLookaheadState();
   buildPracticeGroups();
   const t = getPlaybackTime();
@@ -3321,7 +3254,6 @@ transposeInput?.addEventListener('input', () => {
   persistSongConfig();
 });
 
-// Timing calibration controls
 inputOffsetMsInput?.addEventListener('input', () => {
   const ms = parseInt(inputOffsetMsInput.value || '0', 10);
   if (inputOffsetLabel) inputOffsetLabel.textContent = `${ms} ms`;
@@ -3329,7 +3261,6 @@ inputOffsetMsInput?.addEventListener('input', () => {
   savePref('inputOffsetMs', ms);
 });
 
-// Octave tolerance controls
 octaveTolInput?.addEventListener('input', () => {
   const v = clamp(parseInt(octaveTolInput.value || '1', 10) || 0, 0, 2);
   app.practice.octaveTol = v;
@@ -3340,13 +3271,13 @@ keyTonicSelect?.addEventListener('change', () => {
   app.pitch.keyTonic = parseInt(keyTonicSelect.value || '0', 10) || 0;
   savePref('keyTonic', app.pitch.keyTonic);
   persistSongConfig();
-  // Adjust transpose so that effective key matches selected key
+
   const newT = computeTransposeForTarget(app.pitch.keyTonic);
   if (app.pitch.transpose !== newT) {
     app.pitch.transpose = newT;
     savePref('transpose', app.pitch.transpose);
     syncTransposeUI();
-    // Clear visual/key states to prevent stuck highlights after transposition
+
     try {
       app.liveKeys.clear();
       app.keyGlow.clear();
@@ -3385,7 +3316,7 @@ autoDetectKeyBtn?.addEventListener('click', () => {
     app.pitch.keyScale = r.scale;
     savePref('keyTonic', app.pitch.keyTonic);
     savePref('keyScale', app.pitch.keyScale);
-    // Set baseline original key for consistent transpose calc
+
     app.pitch.originalTonicPref = r.tonic; savePref('originalTonic', r.tonic);
     app.pitch.originalScalePref = r.scale; savePref('originalScale', r.scale);
     updateEffectiveKeyLabel();
