@@ -13,40 +13,46 @@
 </p>
 
 
-A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with piano roll, connect your MIDI keyboard for interactive practice, and track your progress.
+A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with a piano roll, connect your MIDI keyboard for interactive practice, and track your progress with a Guided Learning flow and a built‑in dashboard.
 
 
 ---
 
 ## Features
 
-- MIDI file loader (drag & drop via Upload) + "Load Previous" (persists last song in localStorage)
-- MIDI controls (Play, Pause, Stop, Restart)
+- MIDI loader + quick reload
+  - Upload any .mid/.midi and auto-persist the last song ("Load Previous")
+- Transport and controls
+  - Play, Pause, Stop, Restart; countdown overlay before starting
+  - Tempo slider scales BPM while keeping visuals tightly synced to the audio clock
 - Piano roll visualization
-  - Hand-based colors (Left = Blue, Right = Orange)
-  - Optional trails, adjustable fall time, note border radius, and bounce visuals
-  - Virtual keyboard with track-colored glow and red outlines for visibility
-- Audio & timing via Tone.js
-  - Per-track polysynth playback
-  - Tempo slider scales BPM (keeps visuals in sync)
-- Web MIDI input & output
-  - Detect and select MIDI In/Out devices
-  - MIDI Thru (echo input to output)
-  - Test Note button to validate connections
-  - Channel-aware output for notes; sustain pedal (CC64) mirrored to output
-  - Configurable Sustain Tail (ms) for external output note-offs to reduce choppiness
-  - Panic on Stop (sustain off + All Notes Off on all channels)
-- Practice Mode (wait-for-user)
-  - Note/Chord wait: pauses just before the next group of notes
-  - Pulse UI on required notes; wrong notes flash; continues when all required notes are pressed
-  - Hand isolation (Left/Right/Both), Loop section, Note-wait toggle
-  - Countdown overlay before starting
-- Preferences persisted in localStorage
-  - Mode, Practice toggle, Note-wait, Metronome
-  - Tempo factor, Note radius, Fall time, Trails, Bounce
-  - Hand, Loop settings, Staff view
-  - MIDI Thru, Sustain Tail, preferred MIDI In/Out IDs
-  - Auto-load previous song on startup
+  - Crisp note fall synced to the audio clock (Tone.Transport + Tone.Draw)
+  - Track/part colors, adjustable fall time, note radius, trails, glow, and hit line
+  - Virtual keyboard with colored glow and red outlines for pressed keys
+- Web MIDI I/O
+  - Device selection (In/Out), MIDI Thru, Test Note, echo guard, CC64 sustain handling
+  - Configurable Sustain Tail (ms) for smoother external note‑offs; All Notes Off on Stop
+- Practice Mode (note‑wait)
+  - Pauses just before the next chord/note group; resumes when you play the required notes
+  - Early‑hit lookahead and octave tolerance (±0..2) for forgiving matching
+  - Input timing offset calibration (±200 ms) to match your device/latency
+  - Loop any range; per‑loop feedback (accuracy, timings)
+- Guided Learning (stages)
+  - Sections (~20s each) form cumulative stages: Left → Right → Both (or Both only if no hand split)
+  - End‑of‑stage accuracy overlay with a brief 5s lock; choose Replay or Continue explicitly
+  - Partial‑credit scoring per note, full credit for satisfied chords; no accidental auto‑continue
+  - Adaptive tempo nudge on strong accuracy; per‑stage tempo is remembered
+  - Progress is saved per song and summarized in the Dashboard
+- Transpose & Key
+  - Auto‑detects song key on load; adjust Key/Scale and Transpose with live re‑scheduling
+  - Per‑song config (key/transpose) is remembered across sessions
+- Dashboard
+  - View per‑song completion, section accuracies, last played; sort and reset selectively
+  - Replay the walkthrough tutorial; progress stored locally in the browser
+- Robust MIDI parsing
+  - Sanitizes malformed time‑signature meta events for better compatibility with @tonejs/midi
+- Mobile‑safe
+  - Mobile is intentionally blocked (Web MIDI is unreliable on mobile). Desktop browsers only.
 
 ---
 
@@ -61,13 +67,12 @@ npm install
 # one-time production build of Tailwind CSS
 npm run build:css
 
-# serve the static site (any static server works)
-npx serve
+# run static server (uses npx serve)
+npm start
 ```
 
-Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI permissions when prompted. Entry point: `app.html`.
+Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI permissions when prompted. Entry points: `index.html` (landing), `app.html` (app), `dashboard.html` (progress).
 
----
 
 ## Using the App
 
@@ -83,28 +88,42 @@ Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI per
 3. Controls
    - Play ▶, Pause ⏸, Stop ⏹, Restart ⟳
 4. Practice
-   - Switch Mode to Practice (or toggle the Practice switch)
-   - Enable Note-wait to pause at the next notes/chord
-   - Choose Hand (Left/Right/Both), set Loop start/end (in seconds)
-   - Start playback (countdown appears), and play the required notes to continue
-   - At the end, see your accuracy and missed notes
+  - Switch Mode to Practice and enable Note‑wait (pauses before each required chord/note)
+  - Choose Hand (Left/Right/Both) if your MIDI separates hands; set Loop start/end (seconds)
+  - Start playback (countdown appears); play the required notes to resume
+  - Per‑loop feedback shows accuracy and timing; Guided adds an end‑of‑stage overlay
 5. Visualization
-   - Adjust Note radius (Square/Soft/Pill), Fall time, Trails, and Bounce
-   - Toggle Staff View in the Tracks panel
+  - Adjust Note radius (Square/Soft/Pill), Fall time, Trails, Glow, and Hit line
+
+6. Guided Learning
+  - Click “Guided” to open the panel; stages progress Left → Right → Both (if applicable)
+  - Sections are ~20s each and cumulative across the song
+  - When a stage ends, an accuracy overlay appears (locked for ~5s), then choose Replay/Continue
+
+7. Transpose & Key
+  - Open Transpose & Key; use Auto‑Detect, then adjust Key/Scale or Transpose as needed
+  - Per‑song settings persist; effective key is shown in the modal
+
+8. Dashboard
+  - Open Dashboard to view per‑song progress (completion, per‑section accuracies, last played)
+  - Sort by Recent/Completion/Title; reset one song or all; replay the tutorial
 
 ---
 
 ## How It Works
 
-- MIDI parsing: `@tonejs/midi`
-- Scheduling & audio: `Tone.Transport` + per-track `PolySynth`
-- Tempo slider: scales `Tone.Transport.bpm` around the song’s original BPM (keeps visuals in sync)
-- MIDI Out: mirrors scheduled note on/off using track channels; CC64 (sustain) is forwarded
-- Sustain smoothing: external note-offs delayed by a small, configurable tail (ms)
-- Practice Mode
-  - Notes within 50 ms are grouped; playback pauses ~20 ms before the group
-  - UI pulses required notes until they’re all pressed via MIDI Input
-  - Resume is immediate to maintain sync
+- MIDI parsing: `@tonejs/midi` with a sanitizer for malformed time‑signature meta events
+- Scheduling & audio: Tone.Transport for timing + Tone.Draw for visual sync; per‑track `PolySynth`
+- Tempo: scales around the song’s original BPM (keeps visuals exactly in lockstep)
+- MIDI Out: mirrors scheduled Note On/Off on track channels; CC64 (sustain) forwarded
+- Sustain smoothing: Note Offs delayed by a configurable tail (ms) for external gear
+- Practice engine
+  - Groups close notes into chords; waits just before them (note‑wait)
+  - Early‑hit lookahead, octave tolerance, and input timing offset calibration
+  - Accuracy uses partial per‑note credit; full credit for satisfied chords
+- Guided Learning
+  - Cumulative stages across sections; explicit Continue/Replay control (no auto‑continue)
+  - Final overlay reports accuracy and average timing (ms) with a short input lock
 
 ---
 
@@ -112,26 +131,39 @@ Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI per
 ## Troubleshooting
 
 - Web MIDI not showing devices
-  - Use Chrome/Edge and run on HTTPS or `http://localhost`
+  - Use Chrome/Edge and run on HTTPS or `http://localhost:3000/`
   - Ensure OS sees your device, and it’s not grabbed exclusively by another app
   - Refresh device list in the MIDI Settings modal
 - No sound from output device
   - Select the correct MIDI Output in settings
   - Use Test Note to verify
   - Try increasing Sustain Tail
-- Timing feels off after tempo changes
-  - The app adjusts BPM (not playback rate) so visual sync stays tight; re-check that tempo factor and metronome match expectations
-- Stuck notes on external gear
-  - Press Stop (sends sustain off + All Notes Off)
 
 ---
 
 ## Development
 
 This is a static client app with a local Tailwind build.
-- Tailwind is built locally via PostCSS and output to `./tailwind.css` (linked from HTML)
-- Source styles live in `src/tailwind.css` (uses `@tailwind` directives)
-- Tone.js and `@tonejs/midi` are imported as ESM from CDNs inside `script.js`
+- Tailwind is built locally via PostCSS and output to `./css/tailwind.css` (linked from HTML)
+- Source styles live in `./css/src/tailwind.css` (uses `@tailwind` directives)
+- Tone.js and `@tonejs/midi` are imported as ESM from CDNs inside `./js/script.js`
+- Editor: `.vscode/settings.json` silences harmless CSS warnings for compiled Tailwind output
+
+Project structure (top‑level):
+
+```
+app.html        # main app
+index.html      # landing/marketing
+dashboard.html  # local progress overview
+css/
+  src/tailwind.css  # Tailwind source (with custom CSS)
+  tailwind.css      # compiled output (built via scripts)
+js/
+  script.js         # app logic (module)
+  dashboard.js      # dashboard UI logic (module)
+assets/            # images, icons
+songs/             # sample songs (mid/midi)
+```
 
 Useful scripts:
 
@@ -143,14 +175,14 @@ npm run dev:css
 npm run build:css
 ```
 
-Start a local static server (e.g., `npx serve`) and open `app.html`.
+Start a local static server (`npm start` or `npx serve`) and open `app.html`.
 
-PRs and ideas welcome: measure-aware loops, richer notation/staff view, more analytics, and achievements.
+PRs and ideas are welcome.
 
 ---
 
 ## License
 
-MIT.
+GPL V3.
 
 ## Author: Hridhuun Savant ([Bumblebee-3 (Github)](https://github.com/Bumblebee-3), [Website](https://bumblebee-2008.github.io/))
