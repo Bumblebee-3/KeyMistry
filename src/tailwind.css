@@ -1,3 +1,16 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-specific tweaks (optional) */
+/* Ensure body respects dark color scheme without CDN preflight differences */
+:root {
+  color-scheme: dark;
+}
+
+/* Smooth font rendering */
+html, body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
 canvas#pianoRoll {
   display: block;
 }

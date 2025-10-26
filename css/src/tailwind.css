@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* App-specific tweaks (optional) */
+/* Ensure body respects dark color scheme without CDN preflight differences */
+:root {
+  color-scheme: dark;
+}
+
+/* Smooth font rendering */
+html, body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+canvas#pianoRoll {
+  display: block;
+}
+
+input[type="range"] {
+  accent-color: #60a5fa; 
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border: none; 
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  background-color: #353E4D; 
+  height: 4px;
+  border-radius: 9999px;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background-color: #60a5fa; 
+  border-radius: 9999px;
+  border: none;
+  margin-top: -6px; 
+}
+
+input[type="range"]::-moz-range-track {
+  background-color: #353E4D;
+  height: 4px;
+  border-radius: 9999px;
+}
+input[type="range"]::-moz-range-progress {
+  background-color: #60a5fa; 
+  height: 4px;
+  border-radius: 9999px;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 9999px;
+  background-color: #60a5fa;
+}
+
+input[type="range"]::-ms-track {
+  background: transparent;
+  color: transparent;
+  border: none;
+  height: 4px;
+}
+input[type="range"]::-ms-fill-lower {
+  background-color: #353E4D;
+  border-radius: 9999px;
+}
+input[type="range"]::-ms-fill-upper {
+  background-color: #353E4D;
+  border-radius: 9999px;
+}
+
+input[type="range"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
+  border-radius: 6px;
+}
+
+input#progress::-webkit-slider-runnable-track {
+  background: linear-gradient(to right,
+    #60a5fa 0%,
+    #60a5fa var(--progress, 0%),
+    #353E4D var(--progress, 0%),
+    #353E4D 100%
+  );
+}
+
+.material-icons {
+  font-family: 'Material Icons', sans-serif;
+  font-weight: normal;
+  font-style: normal;
+  font-size: 18px;
+  line-height: 1;
+}
+
+@keyframes pulseKey {
+  0% { filter: brightness(1); }
+  35% { filter: brightness(1.15); }
+  100% { filter: brightness(1); }
+}
+
+.key-pulse {
+  animation: pulseKey 180ms ease-in-out;
+}
+
+input[type="range"]:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35); 
+  border-radius: 6px;
+}

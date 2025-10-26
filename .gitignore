@@ -1,2 +1,8 @@
+node_modules/
+.tailwindcss-cache/
+*.log
+.DS_Store
 /reference/
 /java12/
+.vscode/
+package-lock.json

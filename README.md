@@ -52,12 +52,20 @@ A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and
 
 ## Quick Start
 
+Prereqs: Node.js 18+ recommended.
 
 ```sh
-    npx serve
+# install deps for Tailwind build
+npm install
+
+# one-time production build of Tailwind CSS
+npm run build:css
+
+# serve the static site (any static server works)
+npx serve
 ```
 
-Open the app in Chrome or Edge or Firefox (Web MIDI supported). Grant MIDI permissions when prompted.
+Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI permissions when prompted. Entry point: `app.html`.
 
 ---
 
@@ -120,10 +128,22 @@ Open the app in Chrome or Edge or Firefox (Web MIDI supported). Grant MIDI permi
 
 ## Development
 
-This is a static app—no build step required.
-- Tailwind is loaded via CDN
+This is a static client app with a local Tailwind build.
+- Tailwind is built locally via PostCSS and output to `./tailwind.css` (linked from HTML)
+- Source styles live in `src/tailwind.css` (uses `@tailwind` directives)
 - Tone.js and `@tonejs/midi` are imported as ESM from CDNs inside `script.js`
-- Start a local server as described above and open `index.html`
+
+Useful scripts:
+
+```sh
+# Rebuild Tailwind on changes
+npm run dev:css
+
+# Production/minified build
+npm run build:css
+```
+
+Start a local static server (e.g., `npx serve`) and open `app.html`.
 
 PRs and ideas welcome: measure-aware loops, richer notation/staff view, more analytics, and achievements.
 

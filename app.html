@@ -5,8 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>KeyMistry - MIDI Practice</title>
     <link rel="icon" type="image/x-icon" href="./assets/favicon.png">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="./tailwind.css" />
+  <link rel="stylesheet" href="./css/tailwind.css" />
 
     <!-- Driver.js (IIFE build) from jsDelivr: recommended by user to avoid MIME issues -->
     <script src="https://cdn.jsdelivr.net/npm/driver.js@latest/dist/driver.js.iife.js"></script>
@@ -569,10 +568,10 @@
     <script>
       // Load main module only when not blocked (prevents canvas sizing, audio, and overflow on mobile)
       if (!window.__KM_BLOCKED) {
-        var s = document.createElement('script');
-        s.type = 'module';
-        s.src = './script.js';
-        document.body.appendChild(s);
+  var s = document.createElement('script');
+  s.type = 'module';
+  s.src = './js/script.js';
+  document.body.appendChild(s);
       }
     </script>
 
