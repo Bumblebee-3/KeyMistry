@@ -292,6 +292,17 @@ const app = {
   pedal: {
     sustainDown: new Map(), 
     sustained: new Map(),   
+  },
+  listen: {
+    useAudioScheduler: true,
+    playing: false,
+    events: [], // flattened, tempo-aware absolute times (seconds)
+    idx: 0, // next event index to schedule
+    startAudioTime: 0, // audioContext.currentTime when current run started
+    baseSongTimeSec: 0, // song position (seconds) corresponding to startAudioTime
+    intervalId: null,
+    intervalMs: 50, // scheduler tick
+    aheadSec: 0.25 // schedule-ahead window
   }
 };
 app._originalBpm = 120; 
@@ -1305,6 +1316,179 @@ function scheduleIfNeeded() {
 
   const isSoloActive = app.tracks.some((t) => t.solo);
 
+  // Listen mode: use custom audio scheduler and skip Transport-based scheduling
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    // Build flattened event list once
+    app.listen.events = buildListenEvents(isSoloActive);
+    app.listen.idx = 0;
+    app.scheduled = true;
+    // No Transport.scheduleRepeat; the animation loop + audio scheduler manage UI/loop
+    return;
+  }
+
+  // Listen mode: build a single merged timeline across all tracks for tight sync
+  if (modeSelect?.value === 'listen') {
+    const events = [];
+    const enabledTrack = (ti) => (isSoloActive ? app.tracks[ti]?.solo : !app.tracks[ti]?.muted);
+    // Notes and visuals
+    app.tracks.forEach((t, ti) => {
+      if (!enabledTrack(ti)) return;
+      const synth = app.synths[ti];
+      const channel = t.channel ?? 0;
+      t.notes.filter(n => handFilter(n)).forEach((n) => {
+        const start = (n.time || 0) + now;
+        const dur = Math.max(0.02, Number(n.duration) || 0);
+        const end = start + dur;
+        const midiOut = applyTranspose(n.midi);
+        // note on (audio + external) + visual on
+  events.push({ type: 'noteOn', time: start, midi: midiOut, velocity: n.velocity, channel, synth, dur, color: colorForNoteObj(n) });
+        // visual off exactly at logical end (no tail)
+        events.push({ type: 'visualOff', time: end, midi: midiOut, channel, color: colorForNoteObj(n) });
+        // external MIDI note off uses optional tail
+        const tailSec = (app.midiIO.tailMs || 0) / 1000;
+        events.push({ type: 'midiOff', time: end + tailSec, midi: midiOut, channel });
+      });
+    });
+    // Sustain CC64 for ALL tracks/channels (don’t gate by mute/solo to keep pedal state accurate)
+    app.midi.tracks.forEach((mt, mi) => {
+      const channel = (typeof mt.channel === 'number') ? mt.channel : (app.tracks[mi]?.channel ?? 0);
+      const cc64Arr = mt.controlChanges && (mt.controlChanges[64] || mt.controlChanges["64"]) || [];
+      cc64Arr.forEach(cc => {
+        events.push({ type: 'cc64', time: (cc.time || 0) + now, value: Math.round((cc.value ?? 0) * 127), channel });
+      });
+    });
+
+    // Sort by time then by priority to maintain deterministic ordering on same timestamp
+    const prio = { cc64: 0, noteOn: 1, visualOff: 2, midiOff: 3 };
+    events.sort((a,b)=> (a.time - b.time) || (prio[a.type]-prio[b.type]) );
+
+    // Schedule everything on the transport timeline; use Tone.Draw inside callbacks for visuals
+    events.forEach(ev => {
+      Tone.Transport.schedule((schedTime) => {
+        if (token !== app.renderToken) return;
+        if (modeSelect?.value !== 'listen') return;
+        switch (ev.type) {
+          case 'noteOn': {
+            // Local audio synth
+            if (shouldUseLocalAudio() && ev.synth) {
+              try {
+                ev.synth.triggerAttackRelease(
+                  Tone.Frequency(ev.midi, 'midi').toFrequency(),
+                  Math.max(0.02, ev.dur || 0),
+                  schedTime,
+                  ev.velocity
+                );
+              } catch {}
+            }
+            // External MIDI
+            sendNoteOn(ev.midi, Math.round((ev.velocity || 0) * 127), ev.channel, schedTime);
+            // Visual
+            Tone.Draw.schedule(() => {
+              if (token !== app.renderToken) return;
+              handleNoteOnVisual(ev.midi, ev.channel, ev.color || getKeyGlowColor(ev.midi));
+            }, schedTime);
+            break;
+          }
+          case 'visualOff': {
+            Tone.Draw.schedule(() => {
+              if (token !== app.renderToken) return;
+              handleNoteOffVisual(ev.midi, ev.channel, ev.color || getKeyGlowColor(ev.midi));
+            }, schedTime);
+            break;
+          }
+          case 'midiOff': {
+            sendNoteOff(ev.midi, ev.channel, schedTime);
+            break;
+          }
+          case 'cc64': {
+            updateSustainState(ev.channel, (ev.value|0) >= 64, getPlaybackTime());
+            sendCC(64, ev.value|0, ev.channel);
+            break;
+          }
+        }
+      }, ev.time);
+    });
+
+    // Continue with scheduleRepeat (loop handling and UI updates)
+  } else {
+    // Practice mode and other flows: existing per-track scheduler (needed for note-wait)
+    app.tracks.forEach((t, ti) => {
+      const synth = app.synths[ti];
+      const enabled = isSoloActive ? t.solo : !t.muted;
+      if (!enabled) return;
+      const filtered = t.notes.filter(n => handFilter(n));
+      filtered.forEach((n) => {
+        const time = n.time + now;
+        Tone.Transport.schedule((schedTime) => {
+          if (token !== app.renderToken) return; // stale schedule, abort
+          const midiOut = applyTranspose(n.midi);
+          if (shouldUseLocalAudio() && synth && modeSelect?.value === 'listen') {
+            const dur = Math.max(0.02, Number(n.duration) || 0);
+            synth.triggerAttackRelease(
+              Tone.Frequency(midiOut, "midi").toFrequency(),
+              dur,
+              schedTime,
+              n.velocity
+            );
+          }
+          // Only send scheduled playback to external MIDI in Listen mode
+          if (modeSelect?.value === 'listen') {
+            sendNoteOn(midiOut, Math.round(n.velocity * 127), t.channel, schedTime);
+            // Schedule visual key-on precisely on the audio clock for robustness across rewinds/loops
+            Tone.Draw.schedule(() => {
+              if (token !== app.renderToken) return;
+              if (modeSelect?.value !== 'listen') return;
+              handleNoteOnVisual(midiOut, t.channel, colorForNoteObj(n));
+            }, schedTime);
+          }
+        }, time);
+
+        // Schedule visual key-off on the transport timeline (no tail) and draw on the audio clock
+        const visualOffAt = time + Math.max(0.02, Number(n.duration) || 0);
+        Tone.Transport.schedule((offSchedTime) => {
+          if (token !== app.renderToken) return;
+          if (modeSelect?.value !== 'listen') return;
+          const midiOut = applyTranspose(n.midi);
+          Tone.Draw.schedule(() => {
+            if (token !== app.renderToken) return;
+            if (modeSelect?.value !== 'listen') return;
+            handleNoteOffVisual(midiOut, t.channel, colorForNoteObj(n));
+          }, offSchedTime);
+        }, visualOffAt);
+
+        // Schedule external MIDI note-off precisely on the transport timeline (with optional tail)
+        Tone.Transport.schedule((offTime) => {
+          if (token !== app.renderToken) return;
+          if (modeSelect?.value === 'listen') {
+            const midiOut = applyTranspose(n.midi);
+            sendNoteOff(midiOut, t.channel, offTime);
+          }
+        }, time + Math.max(0.02, Number(n.duration) || 0) + (app.midiIO.tailMs / 1000));
+        // Do not accumulate totals at schedule-time; accuracy is computed per loop window
+      });
+    });
+
+    if (app.midi) {
+      const isSolo = isSoloActive;
+      app.midi.tracks.forEach((mt, mi) => {
+        const enabledTrack = isSolo ? app.tracks[mi]?.solo : !app.tracks[mi]?.muted;
+        if (!enabledTrack) return;
+        const channel = (typeof mt.channel === 'number') ? mt.channel : (app.tracks[mi]?.channel ?? 0);
+        const cc64Arr = mt.controlChanges && (mt.controlChanges[64] || mt.controlChanges["64"]) || [];
+        cc64Arr.forEach(cc => {
+          const val = Math.round((cc.value ?? 0) * 127);
+          Tone.Transport.schedule(() => {
+            if (token !== app.renderToken) return;
+            if (modeSelect?.value !== 'listen') return;
+            // In Listen mode, follow song sustain and forward CC
+            updateSustainState(channel, val >= 64, getPlaybackTime());
+            sendCC(64, val, channel);
+          }, (cc.time ?? 0) + now);
+        });
+      });
+    }
+  }
+
   app.tracks.forEach((t, ti) => {
     const synth = app.synths[ti];
     const enabled = isSoloActive ? t.solo : !t.muted;
@@ -1448,7 +1632,7 @@ function rescheduleTransport() {
   Tone.Transport.seconds = current;
   app.scheduled = false;
   scheduleIfNeeded();
-  if (wasStarted) {
+  if (wasStarted && !(modeSelect?.value === 'listen' && app.listen?.useAudioScheduler)) {
     Tone.Transport.start();
   }
 }
@@ -1474,14 +1658,22 @@ btnPlay.addEventListener("click", async () => {
   } catch {}
   await doCountdownIfNeeded();
 
-  Tone.Transport.start(`+${START_DELAY}`);
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    startListenScheduler();
+  } else {
+    Tone.Transport.start(`+${START_DELAY}`);
+  }
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
 
 });
 
 btnPause.addEventListener("click", () => {
-  Tone.Transport.pause();
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    stopListenScheduler(true);
+  } else {
+    Tone.Transport.pause();
+  }
   stopAnimation({ clear: false });
 
   panicAll();
@@ -1498,8 +1690,13 @@ btnPause.addEventListener("click", () => {
 });
 
 btnStop.addEventListener("click", () => {
-  Tone.Transport.stop();
-  Tone.Transport.seconds = 0;
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    stopListenScheduler(false);
+    app.listen.baseSongTimeSec = 0;
+  } else {
+    Tone.Transport.stop();
+    Tone.Transport.seconds = 0;
+  }
   updateTimeUI(0);
   stopAnimation({ clear: true });
   panicAll();
@@ -1513,8 +1710,13 @@ btnStop.addEventListener("click", () => {
 });
 
 btnRestart.addEventListener("click", () => {
-  Tone.Transport.stop();
-  Tone.Transport.seconds = 0;
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    stopListenScheduler(false);
+    app.listen.baseSongTimeSec = 0;
+  } else {
+    Tone.Transport.stop();
+    Tone.Transport.seconds = 0;
+  }
   clearLoopTimer();
   panicAll();
 
@@ -1524,7 +1726,11 @@ btnRestart.addEventListener("click", () => {
   app._lastLandingFlash.clear();
   scheduleIfNeeded();
 
-  Tone.Transport.start(`+${START_DELAY}`);
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    startListenScheduler();
+  } else {
+    Tone.Transport.start(`+${START_DELAY}`);
+  }
   startAnimation();
   if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
 });
@@ -1534,7 +1740,15 @@ progress.addEventListener("input", () => {
   const pct = parseFloat(progress.value) / 100;
   const t = pct * app.duration;
 
-  Tone.Transport.seconds = t;
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    const wasPlaying = app.listen.playing;
+    if (wasPlaying) stopListenScheduler(false);
+    app.listen.baseSongTimeSec = clamp(t, 0, app.duration || 0);
+    reindexListenEvents(app.listen.baseSongTimeSec);
+    if (wasPlaying) startListenScheduler();
+  } else {
+    Tone.Transport.seconds = t;
+  }
   updateTimeUI(t);
 
   panicAll();
@@ -1549,13 +1763,28 @@ speed.addEventListener("input", () => {
   const v = parseFloat(speed.value);
 
   const newBpm = clamp(app._originalBpm * v, 20, 300);
-  Tone.Transport.bpm.value = newBpm;
+  if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+    // Rebase audio scheduler so changes apply immediately without drift
+    try {
+      if (app.listen.playing) {
+        const current = getPlaybackTime();
+        const ctx = Tone.getContext();
+        app.listen.baseSongTimeSec = current;
+        app.listen.startAudioTime = ctx.now();
+        reindexListenEvents(app.listen.baseSongTimeSec);
+      }
+    } catch {}
+  } else {
+    Tone.Transport.bpm.value = newBpm;
+  }
   speedLabel.textContent = `${Math.round(v * 100)}%`;
 });
 
 modeSelect.addEventListener("change", () => {
   showOverlay(`${modeSelect.value === "practice" ? "Practice" : "Listen"} Mode`);
   app.practice.stats = { total: 0, correct: 0, misses: [], timings: [] };
+  // Stop whichever engine is running and rebuild schedule
+  if (app.listen?.useAudioScheduler) stopListenScheduler(false);
   rescheduleTransport();
   savePref('mode', modeSelect.value);
 
@@ -3126,21 +3355,38 @@ function colorForIncoming(midi) {
 }
 
 function shouldUseLocalAudio() {
-
   return !app.midiIO.output; 
 }
 
-function getPlaybackTime() { try { return Tone.Transport.seconds || 0; } catch { return 0; } }
+// Playback time helper: use AudioContext clock in Listen mode when audio scheduler is active
+function _audioPlaybackTime() {
+  try {
+    const ctx = Tone.getContext();
+    const nowA = ctx.now();
+    const f = clamp(parseFloat(speed?.value || '1') || 1, 0.5, 1.5);
+    return app.listen.baseSongTimeSec + (nowA - app.listen.startAudioTime) * f;
+  } catch { return 0; }
+}
+function getPlaybackTime() {
+  try {
+    if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler && app.listen.playing) {
+      return _audioPlaybackTime();
+    }
+  } catch {}
+  try { return Tone.Transport.seconds || 0; } catch { return 0; }
+}
 
 const _smoothClock = { est: 0, lastRaf: 0, lastState: 'stopped', lastTone: 0 };
 function getSmoothVisualTime() {
   const tone = getPlaybackTime();
   const now = performance.now();
   const state = Tone.Transport.state;
-  if (state !== 'started') {
+  // Treat Listen-mode audio scheduler as 'started' for smoothing purposes
+  const started = (state === 'started') || (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler && app.listen.playing);
+  if (!started) {
     _smoothClock.est = tone;
     _smoothClock.lastRaf = now;
-    _smoothClock.lastState = state;
+    _smoothClock.lastState = started ? 'started' : state;
     _smoothClock.lastTone = tone;
     return tone;
   }
@@ -3160,6 +3406,160 @@ function getSmoothVisualTime() {
   const err = clamp(tone - _smoothClock.est, -0.05, 0.05);
   _smoothClock.est += err * 0.2;
   return _smoothClock.est;
+}
+
+// ===== Listen-mode audio scheduler (beat-locked) =====
+function buildListenEvents(isSoloActive) {
+  const events = [];
+  const enabledTrack = (ti) => (isSoloActive ? app.tracks[ti]?.solo : !app.tracks[ti]?.muted);
+  // Notes and visuals
+  app.tracks.forEach((t, ti) => {
+    if (!enabledTrack(ti)) return;
+    const synth = app.synths[ti];
+    const channel = t.channel ?? 0;
+    t.notes.filter(n => handFilter(n)).forEach((n) => {
+      const start = n.time || 0;
+      const dur = Math.max(0.02, Number(n.duration) || 0);
+      const end = start + dur;
+      const midiOut = applyTranspose(n.midi);
+      const color = colorForNoteObj(n);
+      events.push({ type: 'noteOn', time: start, midi: midiOut, velocity: n.velocity, channel, synth, dur, color });
+      events.push({ type: 'visualOff', time: end, midi: midiOut, channel, color });
+      const tailSec = (app.midiIO.tailMs || 0) / 1000;
+      events.push({ type: 'midiOff', time: end + tailSec, midi: midiOut, channel });
+    });
+  });
+  // Sustain CC64 for ALL tracks/channels
+  app.midi.tracks.forEach((mt, mi) => {
+    const channel = (typeof mt.channel === 'number') ? mt.channel : (app.tracks[mi]?.channel ?? 0);
+    const cc64Arr = mt.controlChanges && (mt.controlChanges[64] || mt.controlChanges["64"]) || [];
+    cc64Arr.forEach(cc => {
+      events.push({ type: 'cc64', time: (cc.time || 0), value: Math.round((cc.value ?? 0) * 127), channel });
+    });
+  });
+  const prio = { cc64: 0, noteOn: 1, visualOff: 2, midiOff: 3 };
+  events.sort((a,b)=> (a.time - b.time) || (prio[a.type]-prio[b.type]) );
+  return events;
+}
+
+function reindexListenEvents(songTimeSec) {
+  const ev = app.listen.events;
+  let lo = 0, hi = ev.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (ev[mid].time < songTimeSec) lo = mid + 1; else hi = mid;
+  }
+  app.listen.idx = lo;
+}
+
+function startListenScheduler() {
+  const ctx = Tone.getContext();
+  // Initialize base if needed
+  if (!Number.isFinite(app.listen.baseSongTimeSec)) app.listen.baseSongTimeSec = 0;
+  app.listen.startAudioTime = ctx.now();
+  reindexListenEvents(app.listen.baseSongTimeSec);
+  app.listen.playing = true;
+  // Ensure we have events
+  if (!Array.isArray(app.listen.events) || !app.listen.events.length) {
+    app.listen.events = buildListenEvents(app.tracks.some(t=>t.solo));
+    reindexListenEvents(app.listen.baseSongTimeSec);
+  }
+  // Start scheduler loop
+  if (app.listen.intervalId) { try { clearInterval(app.listen.intervalId); } catch {} }
+  app.listen.intervalId = setInterval(scheduleListenWindow, app.listen.intervalMs);
+  // Kick once immediately
+  scheduleListenWindow();
+}
+
+function stopListenScheduler(pause) {
+  if (app.listen.intervalId) { try { clearInterval(app.listen.intervalId); } catch {} app.listen.intervalId = null; }
+  if (app.listen.playing) {
+    // On pause, rebase song time to current
+    if (pause) {
+      try { app.listen.baseSongTimeSec = _audioPlaybackTime(); } catch {}
+    }
+  }
+  app.listen.playing = false;
+}
+
+function scheduleListenWindow() {
+  if (!app.listen.playing) return;
+  const ctx = Tone.getContext();
+  const nowA = ctx.now();
+  const f = clamp(parseFloat(speed?.value || '1') || 1, 0.5, 1.5);
+  const windowStartSong = app.listen.baseSongTimeSec + (nowA - app.listen.startAudioTime) * f;
+  const windowEndSong = windowStartSong + app.listen.aheadSec * f;
+
+  const loop = app.practice?.loop || { enabled: false };
+  const loopStart = loop.enabled ? Math.max(0, loop.start || 0) : 0;
+  const loopEnd = loop.enabled ? Math.max(loopStart, loop.end || (app.duration || 0)) : (app.duration || Infinity);
+
+  // If we passed loop end, restart loop immediately
+  if (loop.enabled && windowStartSong >= loopEnd) {
+    // Flush states, reset base, reindex
+    try { panicAll(); } catch {}
+    try {
+      app.liveKeys.clear();
+      app.keyGlow.clear();
+      app.upcomingKeys.clear();
+      app._lastLandingFlash.clear();
+      app.pedal.sustainDown.clear();
+      app.pedal.sustained.forEach(set => set.clear());
+    } catch {}
+    app.listen.baseSongTimeSec = loopStart;
+    app.listen.startAudioTime = nowA;
+    reindexListenEvents(loopStart);
+    return;
+  }
+
+  // Schedule events in [windowStartSong, min(windowEndSong, loopEnd))
+  const limitSong = Math.min(windowEndSong, loopEnd);
+  const events = app.listen.events;
+  while (app.listen.idx < events.length) {
+    const ev = events[app.listen.idx];
+    if (ev.time < windowStartSong - 0.001) { app.listen.idx++; continue; }
+    if (ev.time >= limitSong) break;
+
+    const whenSong = ev.time;
+    const whenAudio = app.listen.startAudioTime + (whenSong - app.listen.baseSongTimeSec) / f;
+    Tone.getContext(); // ensure context
+    // Schedule per type
+    switch (ev.type) {
+      case 'noteOn': {
+        if (shouldUseLocalAudio() && ev.synth) {
+          try {
+            ev.synth.triggerAttackRelease(
+              Tone.Frequency(ev.midi, 'midi').toFrequency(),
+              Math.max(0.02, ev.dur || 0),
+              whenAudio,
+              ev.velocity
+            );
+          } catch {}
+        }
+        sendNoteOn(ev.midi, Math.round((ev.velocity || 0) * 127), ev.channel, whenAudio);
+        Tone.Draw.schedule(() => {
+          handleNoteOnVisual(ev.midi, ev.channel, ev.color || getKeyGlowColor(ev.midi));
+        }, whenAudio);
+        break;
+      }
+      case 'visualOff': {
+        Tone.Draw.schedule(() => {
+          handleNoteOffVisual(ev.midi, ev.channel, ev.color || getKeyGlowColor(ev.midi));
+        }, whenAudio);
+        break;
+      }
+      case 'midiOff': {
+        sendNoteOff(ev.midi, ev.channel, whenAudio);
+        break;
+      }
+      case 'cc64': {
+        updateSustainState(ev.channel, (ev.value|0) >= 64, windowStartSong);
+        sendCC(64, ev.value|0, ev.channel);
+        break;
+      }
+    }
+    app.listen.idx++;
+  }
 }
 
 function applyTranspose(midi) {
