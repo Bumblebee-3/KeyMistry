@@ -8,7 +8,9 @@ if (yearEl) yearEl.textContent = new Date().getFullYear();
 
 function getAllProgress() {
   const items = [];
-  for (let i = 0; i < localStorage.length; i++) {
+  // Cache localStorage length to avoid repeated DOM access
+  const storageLength = localStorage.length;
+  for (let i = 0; i < storageLength; i++) {
     const key = localStorage.key(i);
     if (!key || !key.startsWith('km_progress_')) continue;
     try {
@@ -173,26 +175,30 @@ function render() {
     `;
     cardsEl.appendChild(card);
   });
-
-  document.querySelectorAll('.reset-one').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const key = e.currentTarget.getAttribute('data-key');
-      if (!key) return;
-      if (!confirm('Reset progress for this song?')) return;
-      try { localStorage.removeItem(key); } catch {}
-      render();
-    });
-  });
 }
+
+// Use event delegation for better performance - single listener instead of many
+cardsEl.addEventListener('click', (e) => {
+  if (e.target.classList.contains('reset-one')) {
+    const key = e.target.getAttribute('data-key');
+    if (!key) return;
+    if (!confirm('Reset progress for this song?')) return;
+    try { localStorage.removeItem(key); } catch {}
+    render();
+  }
+});
 
 sortByEl.addEventListener('change', render);
 resetAllBtn.addEventListener('click', () => {
   if (!confirm('Reset ALL guided learning progress?')) return;
   const keys = [];
-  for (let i = 0; i < localStorage.length; i++) {
+  // Cache localStorage length to avoid repeated access during iteration
+  const storageLength = localStorage.length;
+  for (let i = 0; i < storageLength; i++) {
     const key = localStorage.key(i);
     if (key && key.startsWith('km_progress_')) keys.push(key);
   }
+  // Batch remove operations
   keys.forEach(k => { try { localStorage.removeItem(k); } catch {} });
   render();
 });
