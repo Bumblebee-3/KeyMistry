@@ -234,7 +234,16 @@ const app = {
   liveKeys: new Set(), 
   keyGlow: new Map(), 
   upcomingKeys: new Set(), 
-  _lastLandingFlash: new Map(), 
+  _lastLandingFlash: new Map(),
+  metronome: {
+    enabled: true,
+    countInBeats: 4,
+    accentPeriod: 4,
+    gain: null,
+    synth: null,
+    repeatId: null,
+    countIn: { active: false, timers: [] },
+  },
   renderToken: 0, 
   pitch: {
     transpose: 0,
@@ -1224,6 +1233,32 @@ guidedToggleBtn?.addEventListener('click', () => {
   guidedPanel?.classList.toggle('hidden', !app.guided.enabled);
 
   if (app.guided.enabled) {
+    // Immediately stop any current playback and reset for guided flow
+    try { cancelCountIn(); } catch {}
+    try { stopPracticeMetronome(); } catch {}
+    try {
+      if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
+        stopListenScheduler(false);
+        app.listen.baseSongTimeSec = 0;
+        reindexListenEvents(0);
+      } else {
+        Tone.Transport.stop();
+        Tone.Transport.seconds = 0;
+      }
+    } catch {}
+    try { stopAnimation({ clear: true }); } catch {}
+    try { panicAll(); } catch {}
+    try {
+      app.liveKeys.clear();
+      app.keyGlow.clear();
+      app.upcomingKeys.clear();
+      app._lastLandingFlash.clear();
+      app.pedal.sustainDown.clear();
+      app.pedal.sustained.forEach(set => set.clear());
+      ctx.clearRect(0, 0, WIDTH, HEIGHT - KEYBOARD_HEIGHT);
+      drawKeyboard();
+      updateTimeUI(0);
+    } catch {}
     try { applyGuidedPanelSavedPosition(); } catch {}
   }
   if (app.guided.enabled) {
@@ -1239,6 +1274,11 @@ guidedToggleBtn?.addEventListener('click', () => {
     startGuidedPracticeCycle();
 
     persistGuidedProgress();
+  }
+  else {
+    // Guided turned off: stop metronome and any pending count-in
+    try { cancelCountIn(); } catch {}
+    try { stopPracticeMetronome(); } catch {}
   }
 });
 
@@ -1637,6 +1677,87 @@ function rescheduleTransport() {
   }
 }
 
+// --- Metronome & Guided Count-in ---
+function ensureMetronome() {
+  try {
+    if (!app.metronome.gain) app.metronome.gain = new Tone.Gain(0.7).toDestination();
+    if (!app.metronome.synth) {
+      app.metronome.synth = new Tone.MembraneSynth({
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.02 }
+      }).connect(app.metronome.gain);
+    }
+  } catch {}
+}
+
+function stopPracticeMetronome() {
+  try {
+    if (app.metronome.repeatId != null) {
+      Tone.Transport.clear(app.metronome.repeatId);
+      app.metronome.repeatId = null;
+    }
+  } catch {}
+}
+
+function startPracticeMetronome() {
+  stopPracticeMetronome();
+  if (!app.guided?.enabled) return; // only in Guided Mode
+  ensureMetronome();
+  let beat = 0;
+  const cb = (time) => {
+    const accent = (beat % app.metronome.accentPeriod) === 0;
+    app.metronome.synth.triggerAttackRelease(accent ? 'C6' : 'C5', '8n', time);
+    beat++;
+  };
+  try { app.metronome.repeatId = Tone.Transport.scheduleRepeat(cb, '4n'); } catch {}
+}
+
+function cancelCountIn() {
+  const ci = app.metronome.countIn;
+  if (!ci) return;
+  ci.active = false;
+  try { ci.timers.forEach(id => clearTimeout(id)); } catch {}
+  ci.timers = [];
+  if (countdownEl) countdownEl.classList.add('hidden');
+}
+
+function startGuidedCountInThen(startPlayback) {
+  const beats = Math.max(1, Math.min(8, app.metronome.countInBeats || 4));
+  const bpm = Tone.Transport.bpm.value || 120;
+  const beatSec = 60 / bpm;
+  const nowA = Tone.now();
+  const anchor = nowA + 0.15; // slight lead-in
+  cancelCountIn();
+  ensureMetronome();
+  const ci = app.metronome.countIn;
+  ci.active = true;
+  ci.timers = [];
+  if (countdownEl) {
+    countdownEl.classList.remove('hidden');
+    countdownEl.textContent = 'Get Ready';
+  }
+  for (let i = 0; i < beats; i++) {
+    const when = anchor + i * beatSec;
+    const remaining = (beats - i);
+    const accent = (i % app.metronome.accentPeriod) === 0;
+    try { app.metronome.synth.triggerAttackRelease(accent ? 'C6' : 'C5', '8n', when); } catch {}
+    if (countdownEl) {
+      const tid = setTimeout(() => {
+        if (!ci.active) return;
+        countdownEl.textContent = remaining > 1 ? String(remaining - 1) : 'Go!';
+      }, Math.max(0, (when - Tone.now()) * 1000 - 20));
+      ci.timers.push(tid);
+    }
+  }
+  const startAt = anchor + beats * beatSec;
+  const startTid = setTimeout(() => {
+    if (!ci.active) return;
+    if (countdownEl) countdownEl.classList.add('hidden');
+    startPlayback();
+    ci.active = false;
+  }, Math.max(0, (startAt - Tone.now()) * 1000 - 10));
+  ci.timers.push(startTid);
+}
+
 btnPlay.addEventListener("click", async () => {
   await Tone.start(); 
   try {
@@ -1656,7 +1777,31 @@ btnPlay.addEventListener("click", async () => {
       }
     }
   } catch {}
-  await doCountdownIfNeeded();
+  if (app.guided?.enabled && modeSelect?.value !== 'listen') {
+    // Guided mode: BPM-synced count-in, then start playback and metronome
+    startGuidedCountInThen(() => {
+      try {
+        if (app.practice?.loop?.enabled) {
+          const { start, end } = app.practice.loop;
+          const t = Tone.Transport.seconds || 0;
+          if (!(t >= start && t < end)) {
+            Tone.Transport.seconds = start;
+            updateTimeUI(start);
+          }
+        } else {
+          Tone.Transport.seconds = 0;
+          updateTimeUI(0);
+        }
+      } catch {}
+      Tone.Transport.start(`+${START_DELAY}`);
+      startPracticeMetronome();
+      startAnimation();
+      if (fsPlayPauseIcon) fsPlayPauseIcon.textContent = 'Pause';
+    });
+    return;
+  }
+
+  await doCountdownIfNeeded(); // legacy countdown for non-guided practice
 
   if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
     startListenScheduler();
@@ -1674,6 +1819,9 @@ btnPause.addEventListener("click", () => {
   } else {
     Tone.Transport.pause();
   }
+  // Stop any active count-in or metronome when pausing
+  try { cancelCountIn(); } catch {}
+  try { stopPracticeMetronome(); } catch {}
   stopAnimation({ clear: false });
 
   panicAll();
@@ -1697,6 +1845,9 @@ btnStop.addEventListener("click", () => {
     Tone.Transport.stop();
     Tone.Transport.seconds = 0;
   }
+  // Stop any active count-in or metronome on stop
+  try { cancelCountIn(); } catch {}
+  try { stopPracticeMetronome(); } catch {}
   updateTimeUI(0);
   stopAnimation({ clear: true });
   panicAll();
