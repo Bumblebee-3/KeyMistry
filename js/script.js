@@ -617,12 +617,14 @@ function initFromMidi(midi) {
   if (transposeInput) transposeInput.value = '0';
   if (transposeLabel) transposeLabel.textContent = '0';
 
+  // Optimized: use for loops instead of forEach for better performance
   let duration = 0;
-  midi.tracks.forEach((t) => {
-    t.notes.forEach((n) => {
-      duration = Math.max(duration, n.time + n.duration);
-    });
-  });
+  for (const t of midi.tracks) {
+    for (const n of t.notes) {
+      const end = n.time + n.duration;
+      if (end > duration) duration = end;
+    }
+  }
   app.duration = duration;
 
   try {
@@ -674,13 +676,17 @@ function initFromMidi(midi) {
     app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
   } catch {}
 
+  // Optimized: reuse list arrays to reduce Map.get() calls
   app.expectedNotesByTime.clear();
   for (const track of app.tracks) {
     for (const n of track.notes) {
       const bucket = Math.round(n.time * 10) / 10; 
-      const list = app.expectedNotesByTime.get(bucket) || [];
+      let list = app.expectedNotesByTime.get(bucket);
+      if (!list) {
+        list = [];
+        app.expectedNotesByTime.set(bucket, list);
+      }
       list.push({ midi: n.midi, time: n.time, id: n.id, hit: false, trackIndex: n.trackIndex });
-      app.expectedNotesByTime.set(bucket, list);
     }
   }
 
@@ -2841,10 +2847,19 @@ function onMIDIMessage(e) {
     if (modeSelect.value === 'practice' && app.practice.noteWait) {
       const ahead = findGroupsInLookahead(nowCal);
       const tol = app.practice.octaveTol || 0;
+      const earlyHits = app.practice.earlyHits;
+      const skipWaitFor = app.practice.skipWaitFor;
+      
       for (const g of ahead) {
-        let set = app.practice.earlyHits.get(g.index);
-        if (!set) { set = new Set(); app.practice.earlyHits.set(g.index, set); }
+        let set = earlyHits.get(g.index);
+        if (!set) { 
+          set = new Set(); 
+          earlyHits.set(g.index, set); 
+        }
 
+        // Early exit if already satisfied
+        if (skipWaitFor.has(g.index)) continue;
+        
         for (const req of g.notes) {
           if (set.has(req)) continue;
           if (midiMatchesWithOctave(req, tNote, tol)) {
@@ -2853,7 +2868,7 @@ function onMIDIMessage(e) {
           }
         }
         if (set.size >= g.notes.length) {
-          app.practice.skipWaitFor.add(g.index);
+          skipWaitFor.add(g.index);
         }
       }
 
@@ -3072,7 +3087,9 @@ async function loadPracticeStats() {
 
 function anySavedDataPresent() {
   try {
-    for (let i = 0; i < localStorage.length; i++) {
+    // Cache length for performance
+    const storageLength = localStorage.length;
+    for (let i = 0; i < storageLength; i++) {
       const k = localStorage.key(i) || '';
       if (k.startsWith(PREF_PREFIX) || k === 'practiceStats' || k === 'lp_last_midi_b64' || k === 'lp_last_midi_name') return true;
     }
@@ -3087,7 +3104,9 @@ async function bootstrap() {
 
     try {
       const oldPrefix = 'lp_pref_';
-      for (let i = 0; i < localStorage.length; i++) {
+      // Cache length to avoid repeated property access
+      const storageLength = localStorage.length;
+      for (let i = 0; i < storageLength; i++) {
         const k = localStorage.key(i) || '';
         if (k.startsWith(oldPrefix)) {
           const v = localStorage.getItem(k);

@@ -112,12 +112,16 @@ function render() {
   else if (sortBy === 'title') items.sort((a,b) => a.title.localeCompare(b.title));
   else if (sortBy === 'completion') items.sort((a,b) => b.completion - a.completion);
 
-  cardsEl.innerHTML = '';
   if (!items.length) {
+    cardsEl.innerHTML = '';
     emptyEl.classList.remove('hidden');
     return;
   }
   emptyEl.classList.add('hidden');
+  
+  // Use DocumentFragment for better performance - single DOM update instead of many
+  const fragment = document.createDocumentFragment();
+  
   items.forEach(item => {
     const card = document.createElement('div');
     card.className = 'rounded-2xl border border-white/10 hover:border-white/20 transition bg-gray-900/60 p-6 backdrop-blur shadow-lg';
@@ -173,8 +177,12 @@ function render() {
       </div>
       ${sections}
     `;
-    cardsEl.appendChild(card);
+    fragment.appendChild(card);
   });
+  
+  // Single DOM update for all cards
+  cardsEl.innerHTML = '';
+  cardsEl.appendChild(fragment);
 }
 
 // Use event delegation for better performance - single listener instead of many
