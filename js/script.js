@@ -15,6 +15,16 @@ const btnLoadPrevious = document.getElementById("btnLoadPrevious");
 const btnPlay = document.getElementById("btnPlay");
 const btnPause = document.getElementById("btnPause");
 const btnStop = document.getElementById("btnStop");
+const openRolesBtn = document.getElementById('openRoles');
+const rolesModal = document.getElementById('rolesModal');
+const rolesList = document.getElementById('rolesList');
+const rolesClose = document.getElementById('rolesClose');
+const rolesSave = document.getElementById('rolesSave');
+const rolesAuto = document.getElementById('rolesAuto');
+const handSelectModal = document.getElementById('handSelectModal');
+const handPickLeft = document.getElementById('handPickLeft');
+const handPickRight = document.getElementById('handPickRight');
+const handPickBoth = document.getElementById('handPickBoth');
 const btnRestart = document.getElementById("btnRestart");
 const progress = document.getElementById("progress");
 const timeLabel = document.getElementById("timeLabel");
@@ -312,7 +322,8 @@ const app = {
     intervalId: null,
     intervalMs: 50, // scheduler tick
     aheadSec: 0.25 // schedule-ahead window
-  }
+  },
+  roles: [] // per-track: 'left' | 'right' | 'background'
 };
 app._originalBpm = 120; 
 
@@ -652,6 +663,17 @@ function initFromMidi(midi) {
     };
   });
 
+  // Load or initialize track roles and persist
+  loadRoles();
+  saveRoles();
+  // Determine if separate hands are present based on roles
+  try {
+    const hasL = app.roles.includes('left');
+    const hasR = app.roles.includes('right');
+    app.guided.hasSeparateHands = hasL && hasR;
+    app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
+  } catch {}
+
   app.expectedNotesByTime.clear();
   for (const track of app.tracks) {
     for (const n of track.notes) {
@@ -663,6 +685,8 @@ function initFromMidi(midi) {
   }
 
   buildTrackUI();
+  // Auto-open roles selector on new load so users can confirm
+  try { renderRolesModal(); rolesModal?.classList.remove('hidden'); } catch {}
   rescheduleTransport();
   updateTimeUI(0);
 
@@ -811,13 +835,20 @@ function buildTrackUI() {
     const row = document.createElement("div");
     row.className = "flex items-center gap-2 bg-gray-900/60 rounded-xl px-3 py-2 border border-gray-700";
 
-    const swatch = document.createElement("span");
-    swatch.className = "inline-block w-3 h-3 rounded-full";
-    swatch.style.background = t.color;
+  const swatch = document.createElement("span");
+  swatch.className = "inline-block w-3 h-3 rounded-full";
+  const rcol = roleColor(app.roles[idx] || 'background');
+  swatch.style.background = rcol;
 
     const title = document.createElement("div");
     title.className = "flex-1 truncate text-sm";
     title.textContent = t.name;
+
+    const role = document.createElement('span');
+    role.className = 'text-[10px] px-1.5 py-0.5 rounded-full border border-gray-700 bg-gray-800';
+    const r = (app.roles[idx] || 'background');
+    role.textContent = r === 'left' ? 'L' : r === 'right' ? 'R' : 'B';
+    role.style.color = r === 'left' ? '#14b8a6' : (r === 'right' ? '#fb923c' : '#9ca3af');
 
     const mute = document.createElement("button");
     mute.className = `text-xs px-2 py-1 rounded-lg ${t.muted ? "bg-rose-600" : "bg-gray-700 hover:bg-gray-600"}`;
@@ -839,8 +870,9 @@ function buildTrackUI() {
       rescheduleTransport();
     };
 
-    row.appendChild(swatch);
-    row.appendChild(title);
+  row.appendChild(swatch);
+  row.appendChild(title);
+  row.appendChild(role);
     row.appendChild(mute);
     row.appendChild(solo);
     tracksPanel.appendChild(row);
@@ -856,6 +888,80 @@ function buildTrackUI() {
     }
   });
 }
+
+function getSongKeyBase() {
+  try {
+    const name = localStorage.getItem('km_last_midi_name') || 'Unknown MIDI';
+    const base = String(name).replace(/\.[^/.]+$/, '').trim().toLowerCase();
+    return base || 'unknown';
+  } catch { return 'unknown'; }
+}
+
+function autoAssignRoles() {
+  const roles = [];
+  for (let i = 0; i < app.tracks.length; i++) {
+    if (i === 0) roles[i] = 'left';
+    else if (i === 1) roles[i] = 'right';
+    else roles[i] = 'background';
+  }
+  app.roles = roles;
+}
+
+function loadRoles() {
+  const key = `km_roles_${getSongKeyBase()}`;
+  try {
+    const s = localStorage.getItem(key);
+    if (s) {
+      const arr = JSON.parse(s);
+      if (Array.isArray(arr) && arr.length === app.tracks.length) {
+        app.roles = arr;
+        return;
+      }
+    }
+  } catch {}
+  autoAssignRoles();
+}
+
+function saveRoles() {
+  const key = `km_roles_${getSongKeyBase()}`;
+  try { localStorage.setItem(key, JSON.stringify(app.roles)); } catch {}
+}
+
+function renderRolesModal() {
+  if (!rolesList) return;
+  rolesList.innerHTML = '';
+  const opts = [
+    { v: 'left', label: 'Left Hand' },
+    { v: 'right', label: 'Right Hand' },
+    { v: 'background', label: 'Background' },
+  ];
+  app.tracks.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-2 bg-gray-900/60 rounded-lg border border-gray-700 px-2 py-2 mb-2';
+    const name = document.createElement('div');
+    name.className = 'flex-1 truncate text-sm';
+    name.textContent = t.name || `Track ${i+1}`;
+    const sel = document.createElement('select');
+    sel.className = 'px-2 py-1 bg-gray-800 rounded-md border border-gray-700 text-sm';
+    opts.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.v; opt.textContent = o.label; sel.appendChild(opt);
+    });
+    sel.value = app.roles[i] || 'background';
+    sel.onchange = () => { app.roles[i] = sel.value; };
+    row.appendChild(name);
+    row.appendChild(sel);
+    rolesList.appendChild(row);
+  });
+}
+
+openRolesBtn?.addEventListener('click', () => {
+  renderRolesModal();
+  rolesModal?.classList.remove('hidden');
+});
+rolesClose?.addEventListener('click', () => rolesModal?.classList.add('hidden'));
+rolesSave?.addEventListener('click', () => { saveRoles(); buildTrackUI(); rescheduleTransport(); rolesModal?.classList.add('hidden'); });
+rolesAuto?.addEventListener('click', () => { autoAssignRoles(); renderRolesModal(); });
 
 function restoreGuidedProgress() {
   if (!app.guided.progressKey) return;
@@ -1271,6 +1377,38 @@ guidedToggleBtn?.addEventListener('click', () => {
       }
       guidedPrompt.classList.remove('hidden');
     }
+    // If song has separate hands, ask which to start (unless stored)
+    try {
+      const key = `km_handpref_${getSongKeyBase()}`;
+      const saved = localStorage.getItem(key);
+      const hasTwoOrMore = (app.tracks?.length || 0) > 1;
+      if (hasTwoOrMore) {
+        if (!saved) {
+          // open hand selection modal and defer start until pick
+          handSelectModal?.classList.remove('hidden');
+          const onPick = (hand) => {
+            try { localStorage.setItem(key, hand); } catch {}
+            app.guided.stage = (hand === 'both') ? 'both' : hand;
+            setHand(app.guided.stage);
+            handSelectModal?.classList.add('hidden');
+            startGuidedPracticeCycle();
+            persistGuidedProgress();
+          };
+          const once = { once: true };
+          handPickLeft?.addEventListener('click', () => onPick('left'), once);
+          handPickRight?.addEventListener('click', () => onPick('right'), once);
+          handPickBoth?.addEventListener('click', () => onPick('both'), once);
+          return; // wait for user choice
+        } else {
+          app.guided.stage = saved === 'both' ? 'both' : (saved === 'right' ? 'right' : 'left');
+          setHand(app.guided.stage);
+        }
+      } else {
+        app.guided.stage = 'both';
+        setHand('both');
+      }
+    } catch {}
+
     startGuidedPracticeCycle();
 
     persistGuidedProgress();
@@ -1375,7 +1513,8 @@ function scheduleIfNeeded() {
       if (!enabledTrack(ti)) return;
       const synth = app.synths[ti];
       const channel = t.channel ?? 0;
-      t.notes.filter(n => handFilter(n)).forEach((n) => {
+      // In Listen mode, do not filter notes by hand/roles
+      t.notes.forEach((n) => {
         const start = (n.time || 0) + now;
         const dur = Math.max(0.02, Number(n.duration) || 0);
         const end = start + dur;
@@ -1507,6 +1646,41 @@ function scheduleIfNeeded() {
         // Do not accumulate totals at schedule-time; accuracy is computed per loop window
       });
     });
+
+    // Additionally, in Guided/Practice, play background tracks audibly as accompaniment
+    if (app.guided?.enabled) {
+      app.tracks.forEach((t, ti) => {
+        const role = (app.roles && app.roles[ti]) || 'background';
+        if (role !== 'background') return; // only background
+        const enabled = isSoloActive ? t.solo : !t.muted;
+        if (!enabled) return;
+        const synth = app.synths[ti];
+        t.notes.forEach((n) => {
+          const time = n.time + now;
+          const dur = Math.max(0.02, Number(n.duration) || 0);
+          Tone.Transport.schedule((schedTime) => {
+            if (token !== app.renderToken) return;
+            const midiOut = applyTranspose(n.midi);
+            if (shouldUseLocalAudio() && synth) {
+              try {
+                synth.triggerAttackRelease(
+                  Tone.Frequency(midiOut, 'midi').toFrequency(),
+                  dur,
+                  schedTime,
+                  n.velocity
+                );
+              } catch {}
+            }
+            sendNoteOn(midiOut, Math.round((n.velocity || 0) * 127), t.channel, schedTime);
+          }, time);
+          Tone.Transport.schedule((offTime) => {
+            if (token !== app.renderToken) return;
+            const midiOut = applyTranspose(n.midi);
+            sendNoteOff(midiOut, t.channel, offTime);
+          }, time + dur + (app.midiIO.tailMs / 1000));
+        });
+      });
+    }
 
     if (app.midi) {
       const isSolo = isSoloActive;
@@ -2369,7 +2543,15 @@ function drawNotes(currentTime) {
         w = baseW * (0.95 + 0.06 * pulse);
       }
 
-      const baseOpacity = parseFloat(noteOpacity?.value || '0.95');
+      let baseOpacity = parseFloat(noteOpacity?.value || '0.95');
+      // Dim inactive hand in Guided/Practice
+      if (modeSelect?.value !== 'listen' && app.guided?.enabled && Array.isArray(app.roles) && app.roles.length === app.tracks.length) {
+        const role = app.roles[n.trackIndex] || 'background';
+        const hand = app.practice?.hand || 'both';
+        const active = (hand === 'both') ? (role === 'left' || role === 'right') : (role === hand);
+        if (!active && role !== 'background') baseOpacity *= 0.55;
+        if (role === 'background') baseOpacity *= 0.45; // always dim background when shown (Listen mode shows normally)
+      }
       const grad = ctx.createLinearGradient(x, y - h, x, y);
       grad.addColorStop(0, hexToRgba(col, Math.min(1, baseOpacity * 0.8)));
       grad.addColorStop(1, hexToRgba(shadeColor(col, -10), Math.min(1, baseOpacity * 1.0)));
@@ -2760,6 +2942,18 @@ function checkNoteHit(midi, timeSec) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
     for (const exp of list) {
+      // Skip background tracks in accuracy checks unless no L/R roles exist
+      try {
+        if (Array.isArray(app.roles) && app.roles.length === app.tracks.length) {
+          const hasLR = app.roles.some(r => r === 'left' || r === 'right');
+          if (hasLR) {
+            const role = (app.roles && app.roles[exp.trackIndex]) || 'background';
+            if (role === 'background') continue;
+            const hand = app.practice?.hand || 'both';
+            if (hand !== 'both' && role !== hand) continue;
+          }
+        }
+      } catch {}
 
       if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, app.practice.octaveTol || 0) && Math.abs(exp.time - timeSec) <= tolerance) {
         exp.hit = true;
@@ -3046,6 +3240,19 @@ function setHand(hand) {
 }
 
 function handFilter(n) {
+  // In Listen mode, do not filter by hand/roles
+  if (modeSelect?.value === 'listen') return true;
+  // Role-aware filtering for Practice/Guided visuals & accuracy
+  if (Array.isArray(app.roles) && app.roles.length === app.tracks.length) {
+    const hasLR = app.roles.some(r => r === 'left' || r === 'right');
+    if (!hasLR) return true; // if user set no explicit L/R, show all to avoid hiding everything
+    const role = app.roles[n.trackIndex] || 'background';
+    if (role === 'background') return false; // no visuals/accuracy for background
+    const hand = app.practice?.hand || 'both';
+    if (hand === 'both') return role === 'left' || role === 'right';
+    return role === hand;
+  }
+  // Fallback by pitch split if roles not available
   const threshold = applyTranspose(60);
   if (app.practice?.hand === 'left') return applyTranspose(n.midi) < threshold;
   if (app.practice?.hand === 'right') return applyTranspose(n.midi) >= threshold;
@@ -3465,15 +3672,19 @@ function handColorForMidi(midi) {
   return midi < 60 ? '#60a5fa' : '#fb923c';
 }
 
-function colorForNoteObj(n) {
-  const trackCount = app.tracks?.length || 0;
-  if (trackCount > 1) {
+function roleColor(role) {
+  if (role === 'left') return '#14b8a6';
+  if (role === 'right') return '#fb923c';
+  return '#9ca3af';
+}
 
-    if (n.trackIndex === 0) return '#60a5fa';
-    if (n.trackIndex === 1) return '#fb923c';
-    return TRACK_COLORS[n.trackIndex % TRACK_COLORS.length] || '#a78bfa';
-  }
-  return handColorForMidi(applyTranspose(n.midi));
+function colorForNoteObj(n) {
+  // Role-based consistent colors
+  const role = (app.roles && app.roles[n.trackIndex]) || 'background';
+  if (role === 'left') return '#14b8a6'; // teal
+  if (role === 'right') return '#fb923c'; // orange
+  // background
+  return '#9ca3af'; // gray
 }
 
 function colorForIncoming(midi) {
@@ -3568,7 +3779,8 @@ function buildListenEvents(isSoloActive) {
     if (!enabledTrack(ti)) return;
     const synth = app.synths[ti];
     const channel = t.channel ?? 0;
-    t.notes.filter(n => handFilter(n)).forEach((n) => {
+    // In Listen mode, do not filter out by hand/roles
+    t.notes.forEach((n) => {
       const start = n.time || 0;
       const dur = Math.max(0.02, Number(n.duration) || 0);
       const end = start + dur;
