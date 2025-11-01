@@ -666,6 +666,7 @@ function initFromMidi(midi) {
   });
 
   // Load or initialize track roles and persist
+  _clearColorCache(); // Clear color cache when loading new MIDI
   loadRoles();
   saveRoles();
   // Determine if separate hands are present based on roles
