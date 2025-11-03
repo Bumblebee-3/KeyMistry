@@ -585,9 +585,13 @@
           <h3 class="text-lg font-semibold">Assign Track Roles</h3>
           <button id="rolesClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
         </div>
-        <div class="text-xs opacity-75 mb-2">Choose which tracks are Left hand, Right hand, or Background (accompaniment).</div>
-        <div id="rolesList" class="flex-1 overflow-auto rounded-xl border border-gray-700 bg-gray-900/40 p-2"></div>
-        <div class="mt-3 flex items-center justify-end gap-2">
+        <div class="sticky top-0 z-20 px-4 pt-4 pb-3 bg-gray-800/95 backdrop-blur border-b border-gray-700 flex items-center justify-between">
+          <h3 class="text-lg font-semibold">Assign Track Roles</h3>
+          <button id="rolesClose" class="px-2 py-1 bg-gray-700 rounded-md">Close</button>
+        </div>
+        <div class="px-4 pt-2 text-xs opacity-75">Choose which tracks are Left hand, Right hand, or Background (accompaniment). Press Enter or Ctrl/Cmd+S to save.</div>
+        <div id="rolesList" class="flex-1 m-4 mt-2 rounded-xl border border-gray-700 bg-gray-900/40 p-2 overflow-y-auto min-h-0" style="-webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain;"></div>
+        <div class="sticky bottom-0 z-20 px-4 py-3 bg-gray-800/95 backdrop-blur border-t border-gray-700 flex items-center justify-end gap-2">
           <button id="rolesAuto" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg" title="Auto-assign: first=Left, second=Right, others=Background">Auto</button>
           <button id="rolesSave" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Save</button>
         </div>

@@ -686,7 +686,7 @@ function initFromMidi(midi) {
 
   buildTrackUI();
   // Auto-open roles selector on new load so users can confirm
-  try { renderRolesModal(); rolesModal?.classList.remove('hidden'); } catch {}
+  try { renderRolesModal(); rolesModal?.classList.remove('hidden'); ensureRolesScrollable(); rolesList?.focus(); } catch {}
   rescheduleTransport();
   updateTimeUI(0);
 
@@ -955,13 +955,56 @@ function renderRolesModal() {
   });
 }
 
+// Keep the roles list scrollable in Firefox and focusable for keyboard scroll
+function ensureRolesScrollable() {
+  if (!rolesList) return;
+  try { rolesList.setAttribute('tabindex', '0'); } catch {}
+  const onWheel = (e) => {
+    const dy = (typeof e.deltaY === 'number') ? e.deltaY : (e.wheelDelta ? -e.wheelDelta : 0);
+    if (dy !== 0) {
+      rolesList.scrollTop += dy;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  const onTouchStart = (e) => { rolesList.__touchY = (e.touches?.[0]?.clientY) || 0; };
+  const onTouchMove = (e) => {
+    if (typeof rolesList.__touchY === 'number') {
+      const y = (e.touches?.[0]?.clientY) || 0;
+      const dy = rolesList.__touchY - y;
+      rolesList.scrollTop += dy;
+      rolesList.__touchY = y;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+  if (!rolesList.__wheelBound) {
+    rolesList.addEventListener('wheel', onWheel, { passive: false });
+    rolesList.__wheelBound = true;
+  }
+  if (!rolesList.__touchBound) {
+    rolesList.addEventListener('touchstart', onTouchStart, { passive: false });
+    rolesList.addEventListener('touchmove', onTouchMove, { passive: false });
+    rolesList.__touchBound = true;
+  }
+}
+
 openRolesBtn?.addEventListener('click', () => {
   renderRolesModal();
   rolesModal?.classList.remove('hidden');
+  try { ensureRolesScrollable(); rolesList?.focus(); } catch {}
 });
 rolesClose?.addEventListener('click', () => rolesModal?.classList.add('hidden'));
 rolesSave?.addEventListener('click', () => { saveRoles(); buildTrackUI(); rescheduleTransport(); rolesModal?.classList.add('hidden'); });
 rolesAuto?.addEventListener('click', () => { autoAssignRoles(); renderRolesModal(); });
+
+// While the roles modal is open: Enter/Return saves; Esc closes; Ctrl/Cmd+S also saves
+document.addEventListener('keydown', (e) => {
+  if (!rolesModal || rolesModal.classList.contains('hidden')) return;
+  if (e.key === 'Enter') { e.preventDefault(); rolesSave?.click(); }
+  if (e.key === 'Escape') { e.preventDefault(); rolesClose?.click(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); rolesSave?.click(); }
+});
 
 function restoreGuidedProgress() {
   if (!app.guided.progressKey) return;
