@@ -1,5 +1,5 @@
-import * as Tone from "https://cdn.skypack.dev/tone@14.8.49";
-import { Midi } from "https://cdn.skypack.dev/@tonejs/midi@2.0.28";
+import * as Tone from "https://esm.sh/tone@14.8.49";
+import { Midi } from "https://esm.sh/@tonejs/midi@2.0.28";
 
 if (window.__KM_BLOCKED) {
 
@@ -959,34 +959,37 @@ function renderRolesModal() {
 function ensureRolesScrollable() {
   if (!rolesList) return;
   try { rolesList.setAttribute('tabindex', '0'); } catch {}
+  
+  // Clean up any old listeners if called multiple times
+  if (rolesList.__scrollWheel) rolesList.removeEventListener('wheel', rolesList.__scrollWheel);
+  if (rolesList.__scrollTouchStart) rolesList.removeEventListener('touchstart', rolesList.__scrollTouchStart);
+  if (rolesList.__scrollTouchMove) rolesList.removeEventListener('touchmove', rolesList.__scrollTouchMove);
+
   const onWheel = (e) => {
-    const dy = (typeof e.deltaY === 'number') ? e.deltaY : (e.wheelDelta ? -e.wheelDelta : 0);
-    if (dy !== 0) {
-      rolesList.scrollTop += dy;
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    // Let the native browser handle vertical scrolling entirely
+    e.stopPropagation();
   };
-  const onTouchStart = (e) => { rolesList.__touchY = (e.touches?.[0]?.clientY) || 0; };
+  
+  const onTouchStart = (e) => { 
+    // We let the browser handle native scrolling, just stop propagation
+    e.stopPropagation();
+  };
+  
   const onTouchMove = (e) => {
-    if (typeof rolesList.__touchY === 'number') {
-      const y = (e.touches?.[0]?.clientY) || 0;
-      const dy = rolesList.__touchY - y;
-      rolesList.scrollTop += dy;
-      rolesList.__touchY = y;
-      e.preventDefault();
-      e.stopPropagation();
-    }
+    // Let browser handle native touch scrolling, stop propagation to parent
+    e.stopPropagation();
   };
-  if (!rolesList.__wheelBound) {
-    rolesList.addEventListener('wheel', onWheel, { passive: false });
-    rolesList.__wheelBound = true;
-  }
-  if (!rolesList.__touchBound) {
-    rolesList.addEventListener('touchstart', onTouchStart, { passive: false });
-    rolesList.addEventListener('touchmove', onTouchMove, { passive: false });
-    rolesList.__touchBound = true;
-  }
+
+  rolesList.__scrollWheel = onWheel;
+  rolesList.__scrollTouchStart = onTouchStart;
+  rolesList.__scrollTouchMove = onTouchMove;
+
+  // Change to passive: true so wheel and touch don't block scrolling
+  try {
+    rolesList.addEventListener('wheel', onWheel, { passive: true });
+    rolesList.addEventListener('touchstart', onTouchStart, { passive: true });
+    rolesList.addEventListener('touchmove', onTouchMove, { passive: true });
+  } catch {}
 }
 
 openRolesBtn?.addEventListener('click', () => {

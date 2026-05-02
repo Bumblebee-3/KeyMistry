@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="assets/favicon.png" alt="LearnPiano favicon" width="128" />
+  <img src="assets/favicon.png" alt="KeyMistry favicon" width="128" />
   <br/>
-  <h1 align=center>LearnPiano</h1>
+  <h1 align=center>KeyMistry</h1>
   <h2 align=center>Web MIDI Piano Trainer</h2>
  </p>
 
@@ -9,13 +9,28 @@
 
 
 <p align="center">
-  <img src="assets/image.png" alt="LearnPiano screenshot" width="820" />
+  <img src="assets/image.png" alt="KeyMistry screenshot" width="820" />
 </p>
 
 
 A modern, browser-based MIDI piano trainer built with Tailwind CSS, Tone.js, and the Web MIDI API. Load any MIDI file, visualize falling notes with a piano roll, connect your MIDI keyboard for interactive practice, and track your progress with a Guided Learning flow and a built‑in dashboard.
 
 
+**Best for:**  
+- Piano learners with a MIDI keyboard  
+- Users who want structured, accuracy-driven practice  
+- Desktop users on Chrome/Edge  
+
+**Not for:**  
+- Mobile/tablet use  
+- Users without MIDI hardware
+
+> ⚠️ **Desktop only**
+> Web MIDI is unreliable on mobile. This app intentionally blocks mobile browsers.
+
+
+
+Demo: https://bumblebee-3.github.io/KeyMistry/
 ---
 
 ## Features
