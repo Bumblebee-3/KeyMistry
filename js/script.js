@@ -937,12 +937,12 @@ function renderRolesModal() {
   ];
   app.tracks.forEach((t, i) => {
     const row = document.createElement('div');
-    row.className = 'flex items-center gap-2 bg-gray-900/60 rounded-lg border border-gray-700 px-2 py-2 mb-2';
+    row.className = 'flex items-center gap-4 bg-gray-900/60 rounded-xl border border-gray-700 px-4 py-3 mb-3 last:mb-0';
     const name = document.createElement('div');
-    name.className = 'flex-1 truncate text-sm';
+    name.className = 'flex-1 truncate text-base font-medium';
     name.textContent = t.name || `Track ${i+1}`;
     const sel = document.createElement('select');
-    sel.className = 'px-2 py-1 bg-gray-800 rounded-md border border-gray-700 text-sm';
+    sel.className = 'px-3 py-2.5 bg-gray-800 rounded-lg border border-gray-700 text-base focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer';
     opts.forEach(o => {
       const opt = document.createElement('option');
       opt.value = o.v; opt.textContent = o.label; sel.appendChild(opt);
