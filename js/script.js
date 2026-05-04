@@ -617,12 +617,14 @@ function initFromMidi(midi) {
   if (transposeInput) transposeInput.value = '0';
   if (transposeLabel) transposeLabel.textContent = '0';
 
+  // Optimized: use for loops instead of forEach for better performance
   let duration = 0;
-  midi.tracks.forEach((t) => {
-    t.notes.forEach((n) => {
-      duration = Math.max(duration, n.time + n.duration);
-    });
-  });
+  for (const t of midi.tracks) {
+    for (const n of t.notes) {
+      const end = n.time + n.duration;
+      if (end > duration) duration = end;
+    }
+  }
   app.duration = duration;
 
   try {
@@ -664,6 +666,7 @@ function initFromMidi(midi) {
   });
 
   // Load or initialize track roles and persist
+  _clearColorCache(); // Clear color cache when loading new MIDI
   loadRoles();
   saveRoles();
   // Determine if separate hands are present based on roles
@@ -674,13 +677,17 @@ function initFromMidi(midi) {
     app.guided.stage = app.guided.hasSeparateHands ? 'left' : 'both';
   } catch {}
 
+  // Optimized: reuse list arrays to reduce Map.get() calls
   app.expectedNotesByTime.clear();
   for (const track of app.tracks) {
     for (const n of track.notes) {
       const bucket = Math.round(n.time * 10) / 10; 
-      const list = app.expectedNotesByTime.get(bucket) || [];
+      let list = app.expectedNotesByTime.get(bucket);
+      if (!list) {
+        list = [];
+        app.expectedNotesByTime.set(bucket, list);
+      }
       list.push({ midi: n.midi, time: n.time, id: n.id, hit: false, trackIndex: n.trackIndex });
-      app.expectedNotesByTime.set(bucket, list);
     }
   }
 
@@ -998,8 +1005,18 @@ openRolesBtn?.addEventListener('click', () => {
   try { ensureRolesScrollable(); rolesList?.focus(); } catch {}
 });
 rolesClose?.addEventListener('click', () => rolesModal?.classList.add('hidden'));
-rolesSave?.addEventListener('click', () => { saveRoles(); buildTrackUI(); rescheduleTransport(); rolesModal?.classList.add('hidden'); });
-rolesAuto?.addEventListener('click', () => { autoAssignRoles(); renderRolesModal(); });
+rolesSave?.addEventListener('click', () => { 
+  _clearColorCache(); 
+  saveRoles(); 
+  buildTrackUI(); 
+  rescheduleTransport(); 
+  rolesModal?.classList.add('hidden'); 
+});
+rolesAuto?.addEventListener('click', () => { 
+  _clearColorCache(); 
+  autoAssignRoles(); 
+  renderRolesModal(); 
+});
 
 // While the roles modal is open: Enter/Return saves; Esc closes; Ctrl/Cmd+S also saves
 document.addEventListener('keydown', (e) => {
@@ -1153,26 +1170,35 @@ function markStageOnContinue() {
 }
 
 function evaluateLoopPerformance() {
-
   const loopStart = app.practice.loop?.start ?? 0;
   const loopEnd = app.practice.loop?.end ?? app.duration;
-  const groups = app.practice.groups || [];
+  const groups = app.practice.groups;
+  if (!groups || !groups.length) return;
+  
   const matched = app.practice.matchedIds || new Set();
+  const satisfiedGroups = app.practice.satisfiedGroups;
   let expected = 0;
   let correct = 0;
+  
+  // Optimized loop with early termination
   for (let i = 0; i < groups.length; i++) {
     const g = groups[i];
     if (!g) continue;
-    if (g.time < loopStart) continue;
+    
+    // Early exit if we've passed the loop end
     if (g.time >= loopEnd) break;
+    if (g.time < loopStart) continue;
+    
     const sz = g.notes?.length || 0;
     expected += sz;
-    if (app.practice.satisfiedGroups.has(i)) {
-
+    
+    if (satisfiedGroups.has(i)) {
       correct += sz;
-    } else if (Array.isArray(g.ids) && g.ids.length) {
-
-      for (const id of g.ids) if (matched.has(id)) correct += 1;
+    } else if (g.ids && g.ids.length) {
+      // Count partial matches
+      for (const id of g.ids) {
+        if (matched.has(id)) correct++;
+      }
     }
   }
   correct = Math.min(correct, expected);
@@ -2868,10 +2894,19 @@ function onMIDIMessage(e) {
     if (modeSelect.value === 'practice' && app.practice.noteWait) {
       const ahead = findGroupsInLookahead(nowCal);
       const tol = app.practice.octaveTol || 0;
+      const earlyHits = app.practice.earlyHits;
+      const skipWaitFor = app.practice.skipWaitFor;
+      
       for (const g of ahead) {
-        let set = app.practice.earlyHits.get(g.index);
-        if (!set) { set = new Set(); app.practice.earlyHits.set(g.index, set); }
+        let set = earlyHits.get(g.index);
+        if (!set) { 
+          set = new Set(); 
+          earlyHits.set(g.index, set); 
+        }
 
+        // Early exit if already satisfied
+        if (skipWaitFor.has(g.index)) continue;
+        
         for (const req of g.notes) {
           if (set.has(req)) continue;
           if (midiMatchesWithOctave(req, tNote, tol)) {
@@ -2880,7 +2915,7 @@ function onMIDIMessage(e) {
           }
         }
         if (set.size >= g.notes.length) {
-          app.practice.skipWaitFor.add(g.index);
+          skipWaitFor.add(g.index);
         }
       }
 
@@ -2976,32 +3011,31 @@ function handleNoteOffVisual(midi, channel, color) {
 
 function checkNoteHit(midi, timeSec) {
   if (!app.midi) return false;
-  const calibration = app.practice.inputOffsetSec || 0;
   const window = (app.practice.hitWindowSec || BASE_TOLERANCE);
   const tolerance = window; 
 
   const bucket = Math.round(timeSec * 10) / 10;
+  // Pre-calculate neighbor buckets to avoid repeated rounding
   const neighborBuckets = [bucket, Math.round((timeSec + 0.05) * 10) / 10, Math.round((timeSec - 0.05) * 10) / 10];
 
   let matched = false;
+  const octaveTol = app.practice.octaveTol || 0;
+  const hand = app.practice?.hand || 'both';
+  const hasLR = Array.isArray(app.roles) && app.roles.some(r => r === 'left' || r === 'right');
+  
   for (const b of neighborBuckets) {
     const list = app.expectedNotesByTime.get(b);
     if (!list) continue;
     for (const exp of list) {
       // Skip background tracks in accuracy checks unless no L/R roles exist
-      try {
-        if (Array.isArray(app.roles) && app.roles.length === app.tracks.length) {
-          const hasLR = app.roles.some(r => r === 'left' || r === 'right');
-          if (hasLR) {
-            const role = (app.roles && app.roles[exp.trackIndex]) || 'background';
-            if (role === 'background') continue;
-            const hand = app.practice?.hand || 'both';
-            if (hand !== 'both' && role !== hand) continue;
-          }
-        }
-      } catch {}
+      // Optimized: hoist hasLR check outside loop
+      if (hasLR && app.roles.length === app.tracks.length) {
+        const role = app.roles[exp.trackIndex] || 'background';
+        if (role === 'background') continue;
+        if (hand !== 'both' && role !== hand) continue;
+      }
 
-      if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, app.practice.octaveTol || 0) && Math.abs(exp.time - timeSec) <= tolerance) {
+      if (!exp.hit && midiMatchesWithOctave(applyTranspose(exp.midi), midi, octaveTol) && Math.abs(exp.time - timeSec) <= tolerance) {
         exp.hit = true;
         matched = true;
         app.score += 1;
@@ -3100,7 +3134,9 @@ async function loadPracticeStats() {
 
 function anySavedDataPresent() {
   try {
-    for (let i = 0; i < localStorage.length; i++) {
+    // Cache length for performance
+    const storageLength = localStorage.length;
+    for (let i = 0; i < storageLength; i++) {
       const k = localStorage.key(i) || '';
       if (k.startsWith(PREF_PREFIX) || k === 'practiceStats' || k === 'lp_last_midi_b64' || k === 'lp_last_midi_name') return true;
     }
@@ -3115,7 +3151,9 @@ async function bootstrap() {
 
     try {
       const oldPrefix = 'lp_pref_';
-      for (let i = 0; i < localStorage.length; i++) {
+      // Cache length to avoid repeated property access
+      const storageLength = localStorage.length;
+      for (let i = 0; i < storageLength; i++) {
         const k = localStorage.key(i) || '';
         if (k.startsWith(oldPrefix)) {
           const v = localStorage.getItem(k);
@@ -3285,23 +3323,38 @@ function setHand(hand) {
   rescheduleTransport();
 }
 
+// Cache for handFilter to avoid repeated computations
+let _handFilterCache = { hasLR: false, lastRolesLength: 0, lastHand: null };
+
 function handFilter(n) {
   // In Listen mode, do not filter by hand/roles
   if (modeSelect?.value === 'listen') return true;
+  
   // Role-aware filtering for Practice/Guided visuals & accuracy
   if (Array.isArray(app.roles) && app.roles.length === app.tracks.length) {
-    const hasLR = app.roles.some(r => r === 'left' || r === 'right');
-    if (!hasLR) return true; // if user set no explicit L/R, show all to avoid hiding everything
+    const hand = app.practice?.hand || 'both';
+    
+    // Update cache if roles or hand changed
+    if (_handFilterCache.lastRolesLength !== app.roles.length || _handFilterCache.lastHand !== hand) {
+      _handFilterCache.hasLR = app.roles.some(r => r === 'left' || r === 'right');
+      _handFilterCache.lastRolesLength = app.roles.length;
+      _handFilterCache.lastHand = hand;
+    }
+    
+    if (!_handFilterCache.hasLR) return true; // if user set no explicit L/R, show all to avoid hiding everything
+    
     const role = app.roles[n.trackIndex] || 'background';
     if (role === 'background') return false; // no visuals/accuracy for background
-    const hand = app.practice?.hand || 'both';
+    
     if (hand === 'both') return role === 'left' || role === 'right';
     return role === hand;
   }
+  
   // Fallback by pitch split if roles not available
   const threshold = applyTranspose(60);
-  if (app.practice?.hand === 'left') return applyTranspose(n.midi) < threshold;
-  if (app.practice?.hand === 'right') return applyTranspose(n.midi) >= threshold;
+  const hand = app.practice?.hand;
+  if (hand === 'left') return applyTranspose(n.midi) < threshold;
+  if (hand === 'right') return applyTranspose(n.midi) >= threshold;
   return true;
 }
 
@@ -3470,14 +3523,27 @@ function initNoteWait() {
 }
 
 function buildPracticeGroups() {
-  if (!app.midi) { app.practice.groups = []; return; }
-  const all = app.tracks.flatMap((tr) => tr.notes);
-  const filtered = all.filter(n => handFilter(n));
-  const sorted = filtered.sort((a,b)=>a.time - b.time);
+  if (!app.midi) { 
+    app.practice.groups = []; 
+    return; 
+  }
+  
+  // Optimize: combine flatMap and filter into single pass
+  const filtered = [];
+  for (const tr of app.tracks) {
+    for (const n of tr.notes) {
+      if (handFilter(n)) filtered.push(n);
+    }
+  }
+  
+  // Sort in place for memory efficiency
+  filtered.sort((a,b) => a.time - b.time);
+  
   const groups = [];
   const tol = app.practice.chordWindowSec || 0.06; 
   let current = null;
-  for (const n of sorted) {
+  
+  for (const n of filtered) {
     if (!current || Math.abs(n.time - current.time) > tol) {
       current = { time: n.time, notes: [applyTranspose(n.midi)], ids: [n.id] };
       groups.push(current);
@@ -3486,13 +3552,20 @@ function buildPracticeGroups() {
       current.ids.push(n.id);
     }
   }
+  
   app.practice.groups = groups;
   app.practice.currentIndex = 0;
-  app.practice.groupTimeById = new Map();
+  
+  // Build groupTimeById map in single pass
+  const groupTimeById = new Map();
   for (const g of groups) {
-    for (const id of g.ids) app.practice.groupTimeById.set(id, g.time);
+    for (const id of g.ids) {
+      groupTimeById.set(id, g.time);
+    }
   }
+  app.practice.groupTimeById = groupTimeById;
 
+  // Reset practice state
   app.practice.earlyHits = new Map();
   app.practice.skipWaitFor = new Set();
   app.practice.satisfiedGroups = new Set();
@@ -3500,31 +3573,47 @@ function buildPracticeGroups() {
 
 function findUpcomingGroupNearTime(tCal) {
   if (!Array.isArray(app.practice.groups) || !app.practice.groups.length) return null;
-  const startIdx = Math.max(0, app.practice.currentIndex);
-  const maxIdx = Math.min(app.practice.groups.length - 1, startIdx + 3);
+  const groups = app.practice.groups;
   const win = (app.practice.hitWindowSec || BASE_TOLERANCE);
+  
+  // Use a limited forward search from current index for better cache locality
+  const startIdx = Math.max(0, app.practice.currentIndex);
+  const maxIdx = Math.min(groups.length - 1, startIdx + 3);
+  
   for (let i = startIdx; i <= maxIdx; i++) {
-    const g = app.practice.groups[i];
+    const g = groups[i];
     if (!g) continue;
-    if (Math.abs(g.time - tCal) <= win) return { ...g, index: i };
-    if (g.time > tCal + win) break;
+    const timeDiff = g.time - tCal;
+    // Early exit optimization: if group is too far ahead, no need to continue
+    if (timeDiff > win) break;
+    if (Math.abs(timeDiff) <= win) return { ...g, index: i };
   }
   return null;
 }
 
 function findGroupsInLookahead(tCal) {
-  const out = [];
-  const list = app.practice.groups || [];
+  const list = app.practice.groups;
+  if (!list || !list.length) return [];
+  
   const look = Math.max(0, app.practice.lookaheadSec || 0);
-  if (!list.length || look <= 0) return out;
+  if (look <= 0) return [];
 
-  const loStart = app.practice.loop.enabled ? app.practice.loop.start : tCal;
-  const loEnd = app.practice.loop.enabled ? app.practice.loop.end : (tCal + look);
-  for (let i = 0; i < list.length; i++) {
+  const out = [];
+  const loopEnabled = app.practice.loop.enabled;
+  const loStart = loopEnabled ? app.practice.loop.start : tCal;
+  const loEnd = loopEnabled ? app.practice.loop.end : (tCal + look);
+  const limit = Math.min(loEnd, tCal + look);
+  
+  // Start from current index for better performance
+  const startIdx = Math.max(0, app.practice.currentIndex || 0);
+  
+  for (let i = startIdx; i < list.length; i++) {
     const g = list[i];
     if (g.time < loStart) continue;
-    if (g.time > Math.min(loEnd, tCal + look)) break;
-    if (g.time >= tCal) out.push({ ...g, index: i });
+    if (g.time > limit) break;
+    if (g.time >= tCal) {
+      out.push({ ...g, index: i });
+    }
   }
   return out;
 }
@@ -3724,39 +3813,59 @@ function roleColor(role) {
   return '#9ca3af';
 }
 
+// Memoization cache for color calculations
+const _colorCache = new Map();
+function _clearColorCache() {
+  _colorCache.clear();
+}
+
 function colorForNoteObj(n) {
+  // Use memoization to avoid repeated role lookups
+  const cacheKey = `${n.trackIndex}`;
+  let color = _colorCache.get(cacheKey);
+  if (color) return color;
+  
   // Role-based consistent colors
   const role = (app.roles && app.roles[n.trackIndex]) || 'background';
-  if (role === 'left') return '#14b8a6'; // teal
-  if (role === 'right') return '#fb923c'; // orange
-  // background
-  return '#9ca3af'; // gray
+  if (role === 'left') color = '#14b8a6'; // teal
+  else if (role === 'right') color = '#fb923c'; // orange
+  else color = '#9ca3af'; // gray (background)
+  
+  _colorCache.set(cacheKey, color);
+  return color;
 }
 
 function colorForIncoming(midi) {
   const trackCount = app.tracks?.length || 0;
   if (trackCount <= 1) return handColorForMidi(applyTranspose(midi));
+  
   const now = Tone.Transport.seconds;
-  let best = null;
+  let bestTrackIndex = -1;
+  let nearestDt = Infinity;
+  
+  // Optimize: search only relevant tracks
   for (let ti = 0; ti < app.tracks.length; ti++) {
     const notes = app.tracks[ti].notes;
+    // Early exit if this track has no notes
+    if (!notes.length) continue;
 
-    let nearestDt = Infinity;
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
       if (n.midi !== midi) continue;
       const dt = Math.abs(n.time - now);
       if (dt < nearestDt) {
         nearestDt = dt;
-        best = { trackIndex: ti };
+        bestTrackIndex = ti;
+        // Early exit: if very close match found, use it
+        if (dt < 0.02) return bestTrackIndex === 0 ? '#60a5fa' : bestTrackIndex === 1 ? '#fb923c' : TRACK_COLORS[bestTrackIndex % TRACK_COLORS.length];
       }
-      if (dt < 0.02) break; 
     }
   }
-  if (best) {
-    if (best.trackIndex === 0) return '#60a5fa';
-    if (best.trackIndex === 1) return '#fb923c';
-    return TRACK_COLORS[best.trackIndex % TRACK_COLORS.length] || '#a78bfa';
+  
+  if (bestTrackIndex >= 0) {
+    if (bestTrackIndex === 0) return '#60a5fa';
+    if (bestTrackIndex === 1) return '#fb923c';
+    return TRACK_COLORS[bestTrackIndex % TRACK_COLORS.length] || '#a78bfa';
   }
 
   return handColorForMidi(midi);
