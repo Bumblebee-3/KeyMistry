@@ -236,17 +236,19 @@
         <aside class="lg:col-span-3 bg-gray-800/70 border border-gray-700 rounded-2xl p-4 h-[60vh] overflow-auto">
           <div class="flex items-center justify-between mb-3">
             <h2 class="text-sm font-semibold uppercase tracking-wider opacity-80">Tracks</h2>
-            <button id="openRoles" class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-lg" title="Assign Left/Right/Background roles">Roles</button>
+            <div class="flex gap-2">
+              <button id="openInstruments" class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-lg" title="Assign track instruments">Voices</button>
+              <button id="openRoles" class="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded-lg" title="Assign Left/Right/Background roles">Roles</button>
+            </div>
           </div>
           <div id="tracksPanel" class="flex flex-col gap-2"></div>
         </aside>
 
-        
         <section class="lg:col-span-9 bg-gray-800/70 border border-gray-700 rounded-2xl p-2">
           <div class="relative w-full h-[60vh] rounded-xl overflow-hidden bg-gray-900">
             <canvas id="pianoRoll" class="block w-full h-full"></canvas>
             
-            <button id="btnPianoMode" class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-emerald-600/90 hover:bg-emerald-500 rounded-md shadow" aria-label="Piano Mode" title="Piano Mode">
+            <button id="btnPianoMode" class="absolute top-2 right-2 px-3 py-1.5 text-xs bg-emerald-600/90 hover:bg-emerald-500 rounded-md shadow" aria-label="Piano Mode" title="Piano Mode">  
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-5 h-5">
                 <path d="M3 9V3h6" stroke-linecap="round" stroke-linejoin="round" />
                 <path d="M21 15v6h-6" stroke-linecap="round" stroke-linejoin="round" />
@@ -466,6 +468,28 @@
                 <button id="testNoteBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg">Test Note</button>
               </div>
             </div>
+            <div class="pt-2 border-t border-gray-700 space-y-2">
+              <div class="text-sm font-medium opacity-90">Soundfont</div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs opacity-80 mb-1">Bank</label>
+                  <input id="sfBankInput" type="text" value="MusyngKite" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700" placeholder="MusyngKite" />
+                </div>
+                <div>
+                  <label class="block text-xs opacity-80 mb-1">Format</label>
+                  <select id="sfFormatSelect" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700">
+                    <option value="mp3">mp3</option>
+                    <option value="ogg">ogg</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs opacity-80 mb-1">URL template</label>
+                <input id="sfUrlTemplateInput" type="text" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700" value="https://gleitz.github.io/midi-js-soundfonts/{sf}/{name}-{fmt}.js" placeholder="https://.../{sf}/{name}-{fmt}.js" />
+              </div>
+              <button id="sfApplyBtn" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm">Apply Soundfont Settings</button>
+              <p class="text-xs opacity-70">Use placeholders <span class="opacity-90">{sf}</span>, <span class="opacity-90">{name}</span>, and <span class="opacity-90">{fmt}</span>.</p>
+            </div>
             <p class="text-xs opacity-70">Tip: If you cannot find your device over, it may be switched off, or your computer may not have the necessary drivers installed.</p>
           </div>
           
@@ -579,6 +603,33 @@
     </script>
 
     
+    <div id="instrumentSelectorModal" class="fixed inset-0 bg-black/60 hidden flex items-center justify-center p-4" style="z-index: 60;">
+      <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-md w-[92%] flex flex-col overflow-hidden relative" style="max-height: min(75vh, calc(100vh - 2rem));">
+        <div class="p-4 border-b border-gray-700 shrink-0">
+          <h3 class="text-lg font-semibold mb-3">Select Instrument</h3>
+          <input id="instrumentSearch" type="text" placeholder="Search instruments..." class="w-full px-3 py-2 bg-gray-900 rounded-lg border border-gray-700" />
+        </div>
+        <div id="instrumentList" class="flex-1 overflow-y-auto p-4 space-y-1"></div>
+        <div class="p-4 border-t border-gray-700 flex gap-2 shrink-0">
+          <button id="instrumentModalClose" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg flex-1">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="instrumentsModal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-center justify-center p-4">
+      <div class="bg-gray-800 px-4 py-2 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden relative" style="max-height: min(75vh, calc(100vh - 2rem));">
+        <div class="pt-4 pb-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between shrink-0">
+          <h3 class="text-lg font-semibold">Track Instruments</h3>
+          <button id="instrumentsClose" class="text-gray-400 hover:text-gray-200">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+          </button>
+        </div>
+        <div id="instrumentsList" class="flex-1 overflow-y-auto py-2 space-y-2 outline-none"></div>
+      </div>
+    </div>
+
     <div id="rolesModal" class="fixed inset-0 bg-black/60 hidden z-50 flex items-center justify-center p-4">
       <div class="bg-gray-800 px-4 py-2 border border-gray-700 rounded-2xl shadow-2xl max-w-xl w-full flex flex-col overflow-hidden relative" style="max-height: min(75vh, calc(100vh - 2rem));">
         <div class=" pt-4 pb-3 bg-gray-800 border-b border-gray-700 flex items-center justify-between shrink-0">
