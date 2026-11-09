@@ -195,7 +195,7 @@ Start a local static server (`npm start` or `npx serve`) and open `app.html`.
 Playback performance regression checks (Node.js 18+, no extra dependencies):
 
 ```sh
-node --test tests/playback-performance.test.mjs
+node --test tests/*.test.mjs
 ```
 
 The piano roll indexes note intervals so each frame visits only visible notes,
@@ -213,3 +213,37 @@ PRs and ideas are welcome.
 GPL V3.
 
 ## Author: Hridhuun Savant ([Bumblebee-3 (Github)](https://github.com/Bumblebee-3), [Website](https://bumblebee-2008.github.io/))
+
+## Soundfont playback
+
+Choose **MIDI & Visual Settings → Soundfont → Bank** to compare FatBoy (the new
+installation default), Musyng Kite, and FluidR3. Existing saved bank choices are
+preserved. MP3 and OGG are supported. Playback waits for active instruments;
+public bank downloads retry jsDelivr, GitHub Raw, and GitHub Pages. Custom URL
+templates use only the specified host. Bank changes pause playback.
+
+General MIDI channel 10 (zero-based channel 9) uses a dedicated percussion kit,
+not a melodic program. Standard drum notes 35–81 have separate samples; drum
+identities remain unchanged by transposition. Hits decay naturally and closed
+hi-hats choke open hi-hats. Drum tracks do not enter piano practice chords or
+key detection. This is a standard GM kit; proprietary extended drum maps and
+GS/XG kit-selection messages are not supported.
+
+Sample sources and credits:
+
+- [MIDI.js soundfonts](https://github.com/gleitz/midi-js-soundfonts#soundfonts-available):
+  FatBoy and Musyng Kite (CC BY-SA 3.0), FluidR3 (CC BY 3.0), with upstream credits
+  and license links. Samples stream from their hosts; no bank binaries are bundled.
+- [WebAudioFont sound data](https://github.com/surikov/webaudiofontdata): Chaos GM
+  percussion samples, served through jsDelivr with GitHub Raw fallback.
+
+Required sample hosts are `cdn.jsdelivr.net`, `raw.githubusercontent.com`, and
+`gleitz.github.io`. Playback errors display a message rather than silently
+starting an unloaded instrument.
+
+Sustain pedal (CC64) is applied per MIDI channel, including controller-only
+tracks. Local audio holds notes through pedal release; external MIDI receives
+pedal messages timestamped on the audio clock. Seeking/resuming restores pedal
+state, and Stop clears queued MIDI output. A missing pedal-up is bounded by the
+song end; drum one-shots ignore sustain. Sampled sounds still decay naturally
+and cannot exceed the duration of their recorded sample.

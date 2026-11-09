@@ -1,3 +1,6 @@
+import { sustainEvents, createSustainTimeline } from "./sustain.mjs";
+import { loadDrumKit, playbackNote } from "./drum-kit.mjs";
+import { DEFAULT_SOUNDFONT, DEFAULT_SOUNDFONT_URL, soundfontSources, loadSoundfontFromSources } from "./soundfont-sources.mjs";
 import { createNoteIndex, createInstrumentPool } from "./playback-performance.mjs";
 import * as Tone from "https://esm.sh/tone@14.8.49";
 import { Midi } from "https://esm.sh/@tonejs/midi@2.0.28";
@@ -16,10 +19,10 @@ const SF = {
   _namesLoading: new Map(),   // bank -> Promise<string[]>
 };
 
-const DEFAULT_SF_SOUND_FONT = 'MusyngKite';
+const DEFAULT_SF_SOUND_FONT = DEFAULT_SOUNDFONT;
 const DEFAULT_SF_FORMAT = 'mp3';
-const DEFAULT_SF_URL_TEMPLATE = 'https://gleitz.github.io/midi-js-soundfonts/{sf}/{name}-{fmt}.js';
-const DEFAULT_SF_NAMES_URL_TEMPLATE = 'https://gleitz.github.io/midi-js-soundfonts/{sf}/names.json';
+const DEFAULT_SF_URL_TEMPLATE = DEFAULT_SOUNDFONT_URL;
+const DEFAULT_SF_NAMES_URL_TEMPLATE = 'https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/{sf}/names.json';
 
 const KNOWN_SF_BANKS = {
   musyngkite: 'MusyngKite',
@@ -70,6 +73,7 @@ function buildSFNamesUrl(sfBank, template = DEFAULT_SF_NAMES_URL_TEMPLATE) {
 
 async function getSoundfontNamesForBank(sfBank) {
   const bank = normalizeSoundfontBankName(sfBank);
+  if (Object.values(KNOWN_SF_BANKS).includes(bank)) return GM_NAMES.slice();
   if (SF._namesCache.has(bank)) return SF._namesCache.get(bank);
   if (SF._namesLoading.has(bank)) return SF._namesLoading.get(bank);
 
@@ -154,17 +158,26 @@ function sfCacheKey(instrumentName, cfg = getSFConfig()) {
 }
 
 async function getSFInstrument(trackIndex, instrumentName) {
+  if (app.tracks[trackIndex]?.channel === 9) {
+    const cached = SF.instruments.get(trackIndex);
+    if (cached?.drums) return cached.instrument;
+    const notes = app.tracks.filter(t => t.channel === 9).flatMap(t => t.notes.map(n => n.midi));
+    notes.push(38); // Test Note uses an acoustic snare on a percussion track.
+    const key = 'gm-drums:' + [...new Set(notes)].sort((a,b)=>a-b).join(',');
+    const instrument = await SF.pool.load(key, async () => loadDrumKit(await getSFAudioCtx(), notes));
+    SF.instruments.set(trackIndex, { drums: true, instrument });
+    return instrument;
+  }
   const cfg = getSFConfig();
   const resolvedName = normalizeSFInstrumentName(instrumentName);
   const key = sfCacheKey(resolvedName, cfg);
   const inst = await SF.pool.load(key, async () => {
     await loadSFLib();
     const ctx = await getSFAudioCtx();
-    return SF.playerLib.instrument(ctx, resolvedName, {
-      soundfont: cfg.soundfont,
-      format: cfg.format,
-      nameToUrl: (name, sf, fmt) => buildSFUrl(name, sf, fmt, cfg.urlTemplate),
-    });
+    return loadSoundfontFromSources(soundfontSources(resolvedName, cfg.soundfont, cfg.format, cfg.urlTemplate),
+      url => SF.playerLib.instrument(ctx, resolvedName, {
+        soundfont: cfg.soundfont, format: cfg.format, nameToUrl: () => url,
+      }));
   });
   // An older instrument selection must not overwrite the current track cache.
   if (sfCacheKey(app.sfInstrumentNames[trackIndex]) === key) {
@@ -179,18 +192,41 @@ async function sfPlay(trackIndex, instrumentName, midiNote, velocity, whenSec, d
   try {
     const key = sfCacheKey(instrumentName);
     const cached = SF.instruments.get(trackIndex);
-    const inst = (cached?.key === key ? cached.instrument : SF.pool.peek(key))
+    const inst = (app.tracks[trackIndex]?.channel === 9 ? (cached?.drums ? cached.instrument : null) : (cached?.key === key ? cached.instrument : SF.pool.peek(key)))
       || await getSFInstrument(trackIndex, instrumentName);
     // Loading may finish after Stop/seek or a song replacement. Never play late
     // notes in a burst when a soundfont download finally completes.
     if (token !== sfPlaybackToken || whenSec < Tone.getContext().rawContext.currentTime - 0.05) return null;
     return inst.play(midiNote, whenSec, { gain: Math.max(0, Math.min(1, velocity)), duration });
-  } catch (e) { return null; }
+  } catch (e) { console.warn('[Soundfont] Playback failed', e); return null; }
 }
 
 function disposeSFInstruments() { SF.pool.clear(); SF.instruments.clear(); }
 
 function warmSFLib() { loadSFLib().catch(() => {}); }
+
+async function preparePlaybackAudio() {
+  if (!shouldUseLocalAudio()) return true;
+  const token = sfPlaybackToken;
+  const solo = app.tracks.some(t => t.solo);
+  const tracks = app.tracks.map((t, i) => ({t, i})).filter(({t}) => solo ? t.solo : !t.muted);
+  showOverlay('Loading instruments…', 30000);
+  try {
+    // Limit concurrent instrument decodes to keep startup responsive.
+    for (let i = 0; i < tracks.length; i += 3) {
+      await Promise.all(tracks.slice(i, i + 3).map(({i}) => getOrLoadSFInstrumentForTrack(i)));
+      if (token !== sfPlaybackToken) return false;
+    }
+    if (token !== sfPlaybackToken) return false;
+    showOverlay('Instruments ready', 800);
+    return true;
+  } catch (error) {
+    if (token === sfPlaybackToken) showOverlay('Could not load instruments. Check your connection or select another soundfont bank.', 6000);
+    console.warn('[Soundfont]', error);
+    return false;
+  }
+}
+
 
 // ─────────────────────────────────────────────
 // CONSTANTS & DOM REFS
@@ -472,7 +508,7 @@ const app = {
     inId: null, outId: null, input: null, output: null, thru: false, tailMs: 60,
     _echo: new Map(), echoWindowSec: 0.3,
   },
-  pedal: { sustainDown: new Map(), sustained: new Map() },
+  pedal: { sustainDown: new Map(), sustained: new Map(), held: new Map() },
   listen: {
     useAudioScheduler: true, playing: false, events: [], idx: 0,
     startAudioTime: 0, baseSongTimeSec: 0, intervalId: null, intervalMs: 50, aheadSec: 0.25,
@@ -652,7 +688,10 @@ function applyPrefsToUI() {
   app.sfConfig.soundfont   = normalizeSoundfontBankName(sfBank);
   app.sfConfig.format      = String(sfFmt||DEFAULT_SF_FORMAT).trim().toLowerCase()==='ogg'?'ogg':'mp3';
   app.sfConfig.urlTemplate = String(sfTpl||DEFAULT_SF_URL_TEMPLATE).trim()||DEFAULT_SF_URL_TEMPLATE;
-  if (sfBankInput)       sfBankInput.value       = app.sfConfig.soundfont;
+  if (sfBankInput) {
+    if (![...sfBankInput.options].some(o => o.value === app.sfConfig.soundfont)) sfBankInput.add(new Option(app.sfConfig.soundfont, app.sfConfig.soundfont));
+    sfBankInput.value = app.sfConfig.soundfont;
+  }
   if (sfFormatSelect)    sfFormatSelect.value     = app.sfConfig.format;
   if (sfUrlTemplateInput) sfUrlTemplateInput.value = app.sfConfig.urlTemplate;
   app.guided.sectionLenSec = 20;
@@ -730,6 +769,7 @@ function initFromMidi(midi) {
 
   let duration = 0;
   midi.tracks.forEach(t => t.notes.forEach(n => { duration = Math.max(duration, n.time + n.duration); }));
+  for (const event of sustainEvents(midi.tracks)) duration = Math.max(duration, event.time);
   app.duration = duration;
 
   try {
@@ -759,7 +799,7 @@ function initFromMidi(midi) {
   }, []);
 
   app.sfInstrumentNames = app.tracks.map(t => gmInstrumentName(t.program));
-  app.sfInstrumentNames.forEach((_, i) => getOrLoadSFInstrumentForTrack(i).catch(() => {}));
+
 
   // Build note time index
   app.expectedNotesByTime.clear();
@@ -854,7 +894,7 @@ function setTrackSFInstrument(idx, name) {
   const fallback = gmInstrumentName(app.tracks?.[idx]?.program);
   app.sfInstrumentNames[idx] = normalizeSFInstrumentName(name, fallback);
   clearSFTrackCache(idx); persistSongConfig();
-  getOrLoadSFInstrumentForTrack(idx).catch(() => {});
+  getOrLoadSFInstrumentForTrack(idx).catch(() => showOverlay('Could not load this instrument. Try another soundfont bank.', 5000));
 }
 
 function restoreSongConfig() {
@@ -883,7 +923,7 @@ function restoreSongConfig() {
     if (Array.isArray(cfg.sfInstrumentNames) && cfg.sfInstrumentNames.length === app.tracks.length) {
       app.sfInstrumentNames = cfg.sfInstrumentNames.map((n,i) => normalizeSFInstrumentName(n, gmInstrumentName(app.tracks[i]?.program)));
       disposeSFInstruments();
-      app.sfInstrumentNames.forEach((_,i) => getOrLoadSFInstrumentForTrack(i).catch(() => {}));
+
       changed = true;
     }
     if (changed) { clearEarlyLookaheadState(); buildPracticeGroups(); rescheduleTransport(); updateEffectiveKeyLabel(); buildTrackUI(); }
@@ -952,7 +992,11 @@ function getSongKeyBase() {
   catch { return 'unknown'; }
 }
 function autoAssignRoles() {
-  app.roles = app.tracks.map((_, i) => i === 0 ? 'left' : i === 1 ? 'right' : 'background');
+  let melodicIndex = 0;
+  app.roles = app.tracks.map(t => {
+    if (t.channel === 9) return 'background';
+    return ['left', 'right'][melodicIndex++] || 'background';
+  });
 }
 function loadRoles() {
   try {
@@ -979,10 +1023,11 @@ function renderInstrumentsModal() {
     left.append(sw, nm);
     const right = document.createElement('div'); right.className = 'flex items-center gap-2 shrink-0';
     const cl = document.createElement('span'); cl.className = 'text-xs text-emerald-400 truncate w-32 text-right';
-    cl.textContent = (app.sfInstrumentNames[idx]||'acoustic_grand_piano').replace(/_/g,' ');
+    cl.textContent = t.channel === 9 ? 'GM Drum Kit' : (app.sfInstrumentNames[idx]||'acoustic_grand_piano').replace(/_/g,' ');
     cl.title = `Default: ${gmInstrumentName(t.program).replace(/_/g,' ')}`;
     const cb = document.createElement('button'); cb.className = 'px-3 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs';
-    cb.textContent = 'Change Voice'; cb.onclick = () => openInstrumentSelector(idx);
+    if (t.channel === 9) { cb.disabled = true; cb.title = 'Percussion uses the General MIDI drum mapping'; }
+    cb.textContent = t.channel === 9 ? 'Drum Kit' : 'Change Voice'; cb.onclick = () => openInstrumentSelector(idx);
     right.append(cl, cb); row.append(left, right); frag.appendChild(row);
   });
   instrumentsList.appendChild(frag);
@@ -1296,6 +1341,9 @@ function scheduleIfNeeded() {
   Tone.Transport.cancel();
   const token = app.renderToken;
   const isSoloActive = app.tracks.some(t => t.solo);
+  const activeChannels = new Set(app.tracks.filter(t => isSoloActive ? t.solo : !t.muted).map(t => t.channel));
+  app.sustainEvents = sustainEvents(app.midi.tracks, activeChannels);
+  app.sustainTimeline = createSustainTimeline(app.sustainEvents, app.duration);
 
   if (modeSelect?.value === 'listen' && app.listen?.useAudioScheduler) {
     app.listen.events = buildListenEvents(isSoloActive);
@@ -1310,19 +1358,14 @@ function scheduleIfNeeded() {
       if (!enabled(ti)) return;
       t.notes.forEach(n => {
         const start = n.time, dur = Math.max(0.02, n.duration), end = start + dur;
-        const mOut = applyTranspose(n.midi), tail = app.midiIO.tailMs/1000;
+        const mOut = playbackNote(n, app.pitch.transpose), tail = app.midiIO.tailMs/1000;
         const col = colorForNoteObj(n);
-        events.push({type:'noteOn',time:start,midi:mOut,velocity:n.velocity,channel:t.channel,dur,color:col,trackIndex:ti});
+        events.push({type:'noteOn',time:start,midi:mOut,velocity:n.velocity,channel:t.channel,dur:sustainedNoteDuration(n),color:col,trackIndex:ti});
         events.push({type:'visualOff',time:end,midi:mOut,channel:t.channel,color:col});
         events.push({type:'midiOff',time:end+tail,midi:mOut,channel:t.channel});
       });
     });
-    app.midi.tracks.forEach((mt,mi) => {
-      const ai = app.midiTrackToAppTrackIndex?.get(mi); if (ai===undefined) return;
-      const ch = typeof mt.channel==='number' ? mt.channel : (app.tracks[ai]?.channel??0);
-      const cc64 = mt.controlChanges?.[64] || mt.controlChanges?.["64"] || [];
-      cc64.forEach(cc => events.push({type:'cc64',time:cc.time||0,value:Math.round((cc.value??0)*127),channel:ch}));
-    });
+    events.push(...app.sustainEvents);
     const prio = {cc64:0,noteOn:1,visualOff:2,midiOff:3};
     events.sort((a,b) => (a.time-b.time)||(prio[a.type]-prio[b.type]));
     events.forEach(ev => {
@@ -1337,7 +1380,8 @@ function scheduleIfNeeded() {
         } else if (ev.type === 'midiOff') {
           sendNoteOff(ev.midi, ev.channel, schedTime);
         } else if (ev.type === 'cc64') {
-          updateSustainState(ev.channel,(ev.value|0)>=64,getPlaybackTime()); sendCC(64,ev.value|0,ev.channel);
+          sendCC(64,ev.value|0,ev.channel,schedTime);
+          Tone.Draw.schedule(() => { if (token===app.renderToken) updateSustainState(ev.channel,ev.value>=64,getPlaybackTime()); }, schedTime);
         }
       }, ev.time);
     });
@@ -1350,9 +1394,9 @@ function scheduleIfNeeded() {
         const time = n.time;
         Tone.Transport.schedule(schedTime => {
           if (token !== app.renderToken) return;
-          const mOut = applyTranspose(n.midi);
+          const mOut = playbackNote(n, app.pitch.transpose);
           if (shouldUseLocalAudio() && modeSelect?.value === 'listen') {
-            sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, Math.max(0.02,n.duration)).catch(()=>{});
+            sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, sustainedNoteDuration(n)/clamp(parseFloat(speed?.value||'1')||1,0.5,1.5)).catch(()=>{});
           }
           if (modeSelect?.value === 'listen') {
             sendNoteOn(mOut, Math.round(n.velocity*127), t.channel, schedTime);
@@ -1362,12 +1406,12 @@ function scheduleIfNeeded() {
         const offAt = time + Math.max(0.02, n.duration);
         Tone.Transport.schedule(offSched => {
           if (token !== app.renderToken || modeSelect?.value !== 'listen') return;
-          const mOut = applyTranspose(n.midi);
+          const mOut = playbackNote(n, app.pitch.transpose);
           Tone.Draw.schedule(() => { if (token===app.renderToken && modeSelect?.value==='listen') handleNoteOffVisual(mOut,t.channel,colorForNoteObj(n)); }, offSched);
         }, offAt);
         Tone.Transport.schedule(offTime => {
           if (token !== app.renderToken || modeSelect?.value !== 'listen') return;
-          sendNoteOff(applyTranspose(n.midi), t.channel, offTime);
+          sendNoteOff(playbackNote(n, app.pitch.transpose), t.channel, offTime);
         }, time + Math.max(0.02,n.duration) + app.midiIO.tailMs/1000);
       });
     });
@@ -1381,26 +1425,25 @@ function scheduleIfNeeded() {
           const time = n.time, dur = Math.max(0.02,n.duration);
           Tone.Transport.schedule(schedTime => {
             if (token !== app.renderToken) return;
-            const mOut = applyTranspose(n.midi);
-            if (shouldUseLocalAudio()) sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, dur).catch(()=>{});
+            const mOut = playbackNote(n, app.pitch.transpose);
+            if (shouldUseLocalAudio()) sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, sustainedNoteDuration(n)/clamp(parseFloat(speed?.value||'1')||1,0.5,1.5)).catch(()=>{});
             sendNoteOn(mOut, Math.round((n.velocity||0)*127), t.channel, schedTime);
           }, time);
-          Tone.Transport.schedule(offTime => { if (token===app.renderToken) sendNoteOff(applyTranspose(n.midi), t.channel, offTime); }, time+dur+app.midiIO.tailMs/1000);
+          Tone.Transport.schedule(offTime => { if (token===app.renderToken) sendNoteOff(playbackNote(n, app.pitch.transpose), t.channel, offTime); }, time+dur+app.midiIO.tailMs/1000);
         });
       });
     }
 
-    // CC64
-    app.midi.tracks.forEach((mt, mi) => {
-      const ai = app.midiTrackToAppTrackIndex?.get(mi); if (ai===undefined) return;
-      if (isSoloActive ? !app.tracks[ai]?.solo : app.tracks[ai]?.muted) return;
-      const ch = typeof mt.channel==='number' ? mt.channel : (app.tracks[ai]?.channel??0);
-      const cc64 = mt.controlChanges?.[64] || mt.controlChanges?.["64"] || [];
-      cc64.forEach(cc => {
-        const val = Math.round((cc.value??0)*127);
-        Tone.Transport.schedule(() => { if (token!==app.renderToken||modeSelect?.value!=='listen') return; updateSustainState(ch,val>=64,getPlaybackTime()); sendCC(64,val,ch); }, cc.time??0);
-      });
-    });
+    // Keep pedal messages on the same audio clock as scheduled note messages.
+    for (const event of app.sustainEvents) {
+      Tone.Transport.schedule(schedTime => {
+        if (token !== app.renderToken) return;
+        sendCC(64,event.value,event.channel,schedTime);
+        if (modeSelect?.value === 'listen') Tone.Draw.schedule(() => {
+          if (token === app.renderToken) updateSustainState(event.channel,event.value>=64,event.time);
+        },schedTime);
+      },event.time);
+    }
   }
 
   if (modeSelect.value === 'practice') {
@@ -1500,6 +1543,7 @@ btnPlay.addEventListener("click", async () => {
   await Tone.start(); warmSFLib();
   try { Tone.getContext().latencyHint='interactive'; Tone.getContext().lookAhead=Math.max(0.2,Tone.getContext().lookAhead||0.2); } catch {}
   if (!app.midi) return showOverlay("Upload a MIDI file first");
+  if (!(await preparePlaybackAudio())) return;
   scheduleIfNeeded();
   try { if (app.practice?.loop?.enabled) { const {start,end}=app.practice.loop; const t=Tone.Transport.seconds||0; if(!(t>=start&&t<end)){Tone.Transport.seconds=start;updateTimeUI(start);} } } catch {}
   if (app.guided?.enabled && modeSelect?.value !== 'listen') {
@@ -1529,9 +1573,12 @@ btnStop.addEventListener("click", () => {
   if(fsPlayPauseIcon)fsPlayPauseIcon.textContent='Play';
   app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();kbDirty=true;
 });
-btnRestart.addEventListener("click", () => {
+btnRestart.addEventListener("click", async () => {
+  await Tone.start();
+  if (!app.midi) return;
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler){stopListenScheduler(false);app.listen.baseSongTimeSec=0;}else{Tone.Transport.stop();Tone.Transport.seconds=0;}
   clearLoopTimer(); panicAll();
+  if (!(await preparePlaybackAudio())) return;
   app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();kbDirty=true;
   scheduleIfNeeded();
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) startListenScheduler(); else Tone.Transport.start(`+${START_DELAY}`);
@@ -1540,12 +1587,13 @@ btnRestart.addEventListener("click", () => {
 progress.addEventListener("input", () => {
   if (!app.midi) return;
   const t = (parseFloat(progress.value)/100) * app.duration;
+  panicAll(); app.liveKeys.clear(); app.keyGlow.clear();
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) {
     const was=app.listen.playing; if(was)stopListenScheduler(false);
     app.listen.baseSongTimeSec=clamp(t,0,app.duration||0); reindexListenEvents(app.listen.baseSongTimeSec);
     if(was)startListenScheduler();
   } else { Tone.Transport.seconds = t; }
-  updateTimeUI(t); panicAll();
+  updateTimeUI(t);
   kbDirty=true; const c=getCanvasContext(); if(c)c.clearRect(0,0,WIDTH,HEIGHT-KEYBOARD_HEIGHT);
   drawNotes(t); drawKeyboard(); clearLoopTimer();
 });
@@ -1577,14 +1625,22 @@ midiClose?.addEventListener('click', () => midiModal?.classList.add('hidden'));
 openTransposeSettingsBtn?.addEventListener('click', () => transposeModal?.classList.remove('hidden'));
 transposeClose?.addEventListener('click', () => transposeModal?.classList.add('hidden'));
 refreshMIDI?.addEventListener('click', () => initMIDI(true));
-testNoteBtn?.addEventListener('click', () => {
-  if (shouldUseLocalAudio()) { const ctx = Tone.getContext().rawContext; sfPlay(0,app.sfInstrumentNames[0]||'acoustic_grand_piano',60,0.8,ctx.currentTime+0.05,0.3).catch(()=>{}); }
-  sendNoteOn(60,100); setTimeout(()=>sendNoteOff(60),250+(app.midiIO.tailMs||0));
+testNoteBtn?.addEventListener('click', async () => {
+  await Tone.start();
+  if (shouldUseLocalAudio()) {
+    const token = sfPlaybackToken;
+    try {
+      const instrument = await getOrLoadSFInstrumentForTrack(0);
+      if (token !== sfPlaybackToken) return;
+      instrument.play(app.tracks[0]?.channel === 9 ? 38 : 60, Tone.getContext().rawContext.currentTime + 0.05, { gain: 0.6, duration: 0.5 });
+    } catch (error) { showOverlay('Test note failed: could not load the selected soundfont.', 5000); }
+  } else { sendNoteOn(60,100); setTimeout(()=>sendNoteOff(60),250+(app.midiIO.tailMs||0)); }
 });
 midiThruToggle?.addEventListener('change', () => { app.midiIO.thru=!!midiThruToggle.checked; savePref('midiThru',app.midiIO.thru); });
 tailMsInput?.addEventListener('input', () => { const v=parseInt(tailMsInput.value||'0',10); app.midiIO.tailMs=v; if(tailMsLabel)tailMsLabel.textContent=`${v}ms`; });
 
-function applySoundfontSettingsFromUI() {
+async function applySoundfontSettingsFromUI() {
+  btnPause.click();
   const sf = normalizeSoundfontBankName(sfBankInput?.value||DEFAULT_SF_SOUND_FONT);
   const fmt = String(sfFormatSelect?.value||DEFAULT_SF_FORMAT).trim().toLowerCase()==='ogg'?'ogg':'mp3';
   const tpl = String(sfUrlTemplateInput?.value||DEFAULT_SF_URL_TEMPLATE).trim()||DEFAULT_SF_URL_TEMPLATE;
@@ -1592,10 +1648,10 @@ function applySoundfontSettingsFromUI() {
   if (sfBankInput) sfBankInput.value = sf;
   savePref('sfSoundfont',sf); savePref('sfFormat',fmt); savePref('sfUrlTemplate',tpl);
   disposeSFInstruments();
-  if(Array.isArray(app.tracks)&&app.tracks.length) app.sfInstrumentNames.forEach((_,i)=>getOrLoadSFInstrumentForTrack(i).catch(()=>{}));
+
   // Warm the names list so instrument selection matches the selected bank.
   getSoundfontNamesForBank(sf).catch(()=>{});
-  showOverlay('Applied custom soundfont settings',1400);
+  if (await preparePlaybackAudio()) showOverlay(`Soundfont ready: ${sf}`, 1800);
 }
 sfApplyBtn?.addEventListener('click', applySoundfontSettingsFromUI);
 
@@ -1909,7 +1965,7 @@ function drawNotes(currentTime) {
       if (currentTime >= end) continue;
       if (currentTime < start - FALL - SPAWN_EARLY) continue;
 
-      const visMidi = applyTranspose(n.midi);
+      const visMidi = playbackNote(n, app.pitch.transpose);
       const baseW = GEO.midiToWArr[visMidi] * 0.9;
       const baseH = Math.max(6, n.duration * (HEIGHT - KEYBOARD_HEIGHT) / FALL);
       const tNorm = clamp((currentTime - (start - FALL) + VISUAL_LATENCY) / FALL, 0, 1);
@@ -2033,12 +2089,26 @@ function getKeyGlowLevel(midi) {
 }
 function getKeyGlowColor(midi, fallback="#60a5fa") { const item=app.keyGlow.get(midi); return item?.color||handColorForMidi(midi)||fallback; }
 
-function handleNoteOnVisual(midi, channel, color)  { app.liveKeys.add(midi); startKeyGlow(midi,true,color); ensureSustainSet(channel); }
+function releaseVisualKey(midi, color) {
+  for (const held of app.pedal.held.values()) if (held.get(midi)) return;
+  for (const sustained of app.pedal.sustained.values()) if (sustained.has(midi)) return;
+  app.liveKeys.delete(midi); startKeyGlow(midi,false,color);
+}
+function handleNoteOnVisual(midi, channel, color) {
+  let held = app.pedal.held.get(channel);
+  if (!held) { held = new Map(); app.pedal.held.set(channel, held); }
+  held.set(midi, (held.get(midi) || 0) + 1);
+  ensureSustainSet(channel).delete(midi);
+  app.liveKeys.add(midi); startKeyGlow(midi,true,color);
+}
 function handleNoteOffVisual(midi, channel, color) {
-  const sustain = !!app.pedal.sustainDown.get(channel);
+  const held = app.pedal.held.get(channel);
+  const remaining = Math.max(0, (held?.get(midi) || 0) - 1);
+  if (remaining) { held.set(midi,remaining); return; }
+  held?.delete(midi);
   const set = ensureSustainSet(channel);
-  if (sustain) { set.add(midi); }
-  else { app.liveKeys.delete(midi); startKeyGlow(midi,false,color); set.delete(midi); }
+  if (channel !== 9 && app.pedal.sustainDown.get(channel)) set.add(midi);
+  else { set.delete(midi); releaseVisualKey(midi,color); }
 }
 
 // ─────────────────────────────────────────────
@@ -2119,8 +2189,14 @@ function onMIDIMessage(e) {
   }
 }
 function updateSustainState(channel, isDown, now) {
-  const wasDown=!!app.pedal.sustainDown.get(channel); app.pedal.sustainDown.set(channel,isDown);
-  if(!isDown&&wasDown){const set=app.pedal.sustained.get(channel);if(set&&set.size){for(const m of [...set]){app.liveKeys.delete(m);startKeyGlow(m,false,getKeyGlowColor(m));set.delete(m);}}}
+  if (channel === 9) return;
+  const wasDown = !!app.pedal.sustainDown.get(channel);
+  app.pedal.sustainDown.set(channel,isDown);
+  if (!isDown && wasDown) {
+    const set = ensureSustainSet(channel);
+    const released = [...set]; set.clear();
+    for (const midi of released) releaseVisualKey(midi,getKeyGlowColor(midi));
+  }
 }
 function ensureSustainSet(ch){if(!app.pedal.sustained.has(ch))app.pedal.sustained.set(ch,new Set());return app.pedal.sustained.get(ch);}
 function checkNoteHit(midi, timeSec) {
@@ -2200,17 +2276,17 @@ function setHand(hand){
 function handFilter(n){
   if(modeSelect?.value==='listen')return true;
   if(Array.isArray(app.roles)&&app.roles.length===app.tracks.length){const hasLR=app.roles.some(r=>r==='left'||r==='right');if(!hasLR)return true;const role=app.roles[n.trackIndex]||'background';if(role==='background')return false;const hand=app.practice?.hand||'both';if(hand==='both')return role==='left'||role==='right';return role===hand;}
-  const thr=applyTranspose(60);if(app.practice?.hand==='left')return applyTranspose(n.midi)<thr;if(app.practice?.hand==='right')return applyTranspose(n.midi)>=thr;return true;
+  const thr=applyTranspose(60);if(app.practice?.hand==='left')return playbackNote(n, app.pitch.transpose)<thr;if(app.practice?.hand==='right')return playbackNote(n, app.pitch.transpose)>=thr;return true;
 }
 async function doCountdownIfNeeded(){if(modeSelect.value!=='practice'||!countdownEl)return;countdownEl.classList.remove('hidden');for(let i=3;i>=1;i--){countdownEl.textContent=String(i);await sleep(500);}countdownEl.classList.add('hidden');}
 function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 function buildPracticeGroups(){
   if(!app.midi){app.practice.groups=[];return;}
   const all=app.tracks.flatMap(tr=>tr.notes);
-  const filtered=all.filter(n=>handFilter(n)).sort((a,b)=>a.time-b.time);
+  const filtered=all.filter(n=>n.channel!==9&&handFilter(n)).sort((a,b)=>a.time-b.time);
   const groups=[], tol=app.practice.chordWindowSec||0.06;
   let cur=null;
-  for(const n of filtered){if(!cur||Math.abs(n.time-cur.time)>tol){cur={time:n.time,notes:[applyTranspose(n.midi)],ids:[n.id]};groups.push(cur);}else{cur.notes.push(applyTranspose(n.midi));cur.ids.push(n.id);}}
+  for(const n of filtered){if(!cur||Math.abs(n.time-cur.time)>tol){cur={time:n.time,notes:[playbackNote(n, app.pitch.transpose)],ids:[n.id]};groups.push(cur);}else{cur.notes.push(playbackNote(n, app.pitch.transpose));cur.ids.push(n.id);}}
   app.practice.groups=groups; app.practice.currentIndex=0;
   app.practice.groupTimeById=new Map();
   for(const g of groups)for(const id of g.ids)app.practice.groupTimeById.set(id,g.time);
@@ -2274,9 +2350,14 @@ function isLikelyEcho(type,midi,ch,nowSec){try{const t=app.midiIO._echo.get(_ech
 function _audioTimeToTs(audioTimeSec){try{const rctx=Tone.getContext().rawContext;return performance.now()+Math.max(0,(audioTimeSec-rctx.currentTime)*1000);}catch{return undefined;}}
 function sendNoteOn(midi,velocity=100,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x90|(ch&0x0f),midi&0x7f,clamp(velocity,0,127)],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('on',midi,ch);}catch{}}
 function sendNoteOff(midi,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x80|(ch&0x0f),midi&0x7f,0],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('off',midi,ch);}catch{}}
-function sendCC(ctrl,val,ch=0){const out=app.midiIO.output;if(!out)return;try{out.send([0xB0|(ch&0x0f),ctrl&0x7f,clamp(val,0,127)]);}catch{}}
-function panicAll(){sfPlaybackToken++;try{SF.pool.stop();}catch{}for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
+function sendCC(ctrl,val,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0xB0|(ch&0x0f),ctrl&0x7f,clamp(val,0,127)],schedTime!=null?_audioTimeToTs(schedTime):undefined);}catch{}}
+function panicAll(){sfPlaybackToken++;app.pedal.held.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear());try{app.midiIO.output?.clear?.();}catch{}try{SF.pool.stop();}catch{}for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
 function shouldUseLocalAudio(){return !app.midiIO.output;}
+function sustainedNoteDuration(note) {
+  const end = note.time + Math.max(0.02, note.duration);
+  return Math.max(0.02, (app.sustainTimeline?.releaseTime(note.channel, end) ?? end) - note.time);
+}
+
 
 // ─────────────────────────────────────────────
 // COLORS & TRANSPOSE
@@ -2323,18 +2404,13 @@ function buildListenEvents(isSoloActive){
     if(!enabled(ti))return;
     const ch=t.channel??0;
     t.notes.forEach(n=>{
-      const start=n.time,dur=Math.max(0.02,n.duration),end=start+dur,mOut=applyTranspose(n.midi),tail=app.midiIO.tailMs/1000,col=colorForNoteObj(n);
-      events.push({type:'noteOn',time:start,midi:mOut,velocity:n.velocity,channel:ch,dur,color:col,trackIndex:ti});
+      const start=n.time,dur=Math.max(0.02,n.duration),end=start+dur,mOut=playbackNote(n, app.pitch.transpose),tail=app.midiIO.tailMs/1000,col=colorForNoteObj(n);
+      events.push({type:'noteOn',time:start,midi:mOut,velocity:n.velocity,channel:ch,dur:sustainedNoteDuration(n),color:col,trackIndex:ti});
       events.push({type:'visualOff',time:end,midi:mOut,channel:ch,color:col});
       events.push({type:'midiOff',time:end+tail,midi:mOut,channel:ch});
     });
   });
-  app.midi.tracks.forEach((mt,mi)=>{
-    const ai=app.midiTrackToAppTrackIndex?.get(mi); if(ai===undefined)return;
-    const ch=typeof mt.channel==='number'?mt.channel:(app.tracks[ai]?.channel??0);
-    const cc64=mt.controlChanges?.[64]||mt.controlChanges?.["64"]||[];
-    cc64.forEach(cc=>events.push({type:'cc64',time:cc.time||0,value:Math.round((cc.value??0)*127),channel:ch}));
-  });
+  events.push(...(app.sustainEvents || []));
   const prio={cc64:0,noteOn:1,visualOff:2,midiOff:3};
   events.sort((a,b)=>(a.time-b.time)||(prio[a.type]-prio[b.type]));
   return events;
@@ -2344,9 +2420,17 @@ function reindexListenEvents(songTimeSec){
   while(lo<hi){const mid=(lo+hi)>>1;ev[mid].time<songTimeSec?lo=mid+1:hi=mid;}
   app.listen.idx=lo;
 }
+function restoreSustainAt(songTime, audioTime) {
+  for (let channel=0; channel<16; channel++) {
+    const value = app.sustainTimeline?.stateAt(channel, songTime) || 0;
+    updateSustainState(channel, value >= 64, songTime);
+    sendCC(64, value, channel, audioTime);
+  }
+}
 function startListenScheduler(){
   const rc=Tone.getContext().rawContext;
   if(!Number.isFinite(app.listen.baseSongTimeSec))app.listen.baseSongTimeSec=0;
+  restoreSustainAt(app.listen.baseSongTimeSec, rc.currentTime);
   app.listen.startAudioTime=rc.currentTime; reindexListenEvents(app.listen.baseSongTimeSec); app.listen.playing=true;
   if(!Array.isArray(app.listen.events)||!app.listen.events.length){app.listen.events=buildListenEvents(app.tracks.some(t=>t.solo));reindexListenEvents(app.listen.baseSongTimeSec);}
   if(app.listen.intervalId){try{clearInterval(app.listen.intervalId);}catch{}}
@@ -2370,24 +2454,26 @@ function scheduleListenWindow(){
   if(loop.enabled&&wSong>=lE){
     try{panicAll();}catch{}
     try{app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear());}catch{}
-    kbDirty=true; app.listen.baseSongTimeSec=lS; app.listen.startAudioTime=nowA; reindexListenEvents(lS); return;
+    kbDirty=true; app.listen.baseSongTimeSec=lS; app.listen.startAudioTime=nowA; reindexListenEvents(lS); restoreSustainAt(lS,nowA); return;
   }
   const token = sfPlaybackToken;
   const limit=Math.min(wEnd,lE), events=app.listen.events;
   while(app.listen.idx<events.length){
     const ev=events[app.listen.idx];
-    if(ev.time<wSong-0.001){app.listen.idx++;continue;}
+    if(ev.time<wSong-app.listen.aheadSec){app.listen.idx++;continue;}
     if(ev.time>=limit)break;
-    const whenAudio=app.listen.startAudioTime+(ev.time-app.listen.baseSongTimeSec)/f;
+    const whenAudio=Math.max(nowA,app.listen.startAudioTime+(ev.time-app.listen.baseSongTimeSec)/f);
     switch(ev.type){
       case 'noteOn':
-        if(shouldUseLocalAudio())sfPlay(ev.trackIndex??0,app.sfInstrumentNames[ev.trackIndex??0]||'acoustic_grand_piano',ev.midi,ev.velocity,whenAudio,Math.max(0.02,(ev.dur||0)/f)).catch(()=>{});
+        if(shouldUseLocalAudio())sfPlay(ev.trackIndex??0,app.sfInstrumentNames[ev.trackIndex??0]||'acoustic_grand_piano',ev.midi,ev.velocity,whenAudio,Math.max(0.02,(Math.min(ev.time+(ev.dur||0),lE)-ev.time)/f)).catch(()=>{});
         sendNoteOn(ev.midi,Math.round((ev.velocity||0)*127),ev.channel,whenAudio);
         Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOnVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'visualOff':
         Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOffVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'midiOff': sendNoteOff(ev.midi,ev.channel,whenAudio); break;
-      case 'cc64': updateSustainState(ev.channel,(ev.value|0)>=64,wSong); sendCC(64,ev.value|0,ev.channel); break;
+      case 'cc64':
+        sendCC(64,ev.value|0,ev.channel,whenAudio);
+        Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)updateSustainState(ev.channel,ev.value>=64,ev.time);},whenAudio); break;
     }
     app.listen.idx++;
   }
@@ -2406,7 +2492,7 @@ function detectKeyFromMidi(){
   const maj=[6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
   const min=[6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
   const counts=new Array(12).fill(0);
-  for(const tr of app.tracks)for(const n of tr.notes)counts[n.midi%12]+=Math.max(1,n.duration);
+  for(const tr of app.tracks.filter(t=>t.channel!==9))for(const n of tr.notes)counts[n.midi%12]+=Math.max(1,n.duration);
   const scoreFor=profile=>{let best={tonic:0,score:-Infinity};for(let s=0;s<12;s++){let sc=0;for(let i=0;i<12;i++)sc+=counts[i]*profile[(12+i-s)%12];if(sc>best.score)best={tonic:s,score:sc};}return best;};
   const M=scoreFor(maj),m=scoreFor(min);
   const scale=M.score>=m.score?'major':'minor';

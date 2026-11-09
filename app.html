@@ -473,7 +473,11 @@
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="block text-xs opacity-80 mb-1">Bank</label>
-                  <input id="sfBankInput" type="text" value="MusyngKite" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700" placeholder="MusyngKite" />
+                  <select id="sfBankInput" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700">
+                    <option value="FatBoy">FatBoy — balanced ensemble</option>
+                    <option value="MusyngKite">Musyng Kite — detailed instruments</option>
+                    <option value="FluidR3_GM">FluidR3 — lighter download</option>
+                  </select>
                 </div>
                 <div>
                   <label class="block text-xs opacity-80 mb-1">Format</label>
@@ -485,9 +489,10 @@
               </div>
               <div>
                 <label class="block text-xs opacity-80 mb-1">URL template</label>
-                <input id="sfUrlTemplateInput" type="text" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700" value="https://gleitz.github.io/midi-js-soundfonts/{sf}/{name}-{fmt}.js" placeholder="https://.../{sf}/{name}-{fmt}.js" />
+                <input id="sfUrlTemplateInput" type="text" class="w-full px-2 py-2 bg-gray-900 rounded-lg border border-gray-700" value="https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/{sf}/{name}-{fmt}.js" placeholder="https://.../{sf}/{name}-{fmt}.js" />
               </div>
               <button id="sfApplyBtn" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm">Apply Soundfont Settings</button>
+              <p class="text-xs opacity-70">Changing banks pauses playback. Each instrument downloads once and is shared across tracks. <a href="https://github.com/gleitz/midi-js-soundfonts#soundfonts-available" target="_blank" rel="noopener" class="underline">Soundfont credits &amp; licenses</a></p>
               <p class="text-xs opacity-70">Use placeholders <span class="opacity-90">{sf}</span>, <span class="opacity-90">{name}</span>, and <span class="opacity-90">{fmt}</span>.</p>
             </div>
             <p class="text-xs opacity-70">Tip: If you cannot find your device over, it may be switched off, or your computer may not have the necessary drivers installed.</p>
