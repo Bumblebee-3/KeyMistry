@@ -1,4 +1,4 @@
-export const DEFAULT_SOUNDFONT = 'FatBoy';
+export const DEFAULT_SOUNDFONT = 'MusyngKite';
 export const DEFAULT_SOUNDFONT_URL = 'https://cdn.jsdelivr.net/gh/gleitz/midi-js-soundfonts@gh-pages/{sf}/{name}-{fmt}.js';
 const RAW_URL = 'https://raw.githubusercontent.com/gleitz/midi-js-soundfonts/gh-pages/{sf}/{name}-{fmt}.js';
 const LEGACY_URL = 'https://gleitz.github.io/midi-js-soundfonts/{sf}/{name}-{fmt}.js';

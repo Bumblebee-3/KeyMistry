@@ -6,6 +6,7 @@ export function playbackNote(note, transpose = 0) {
 export async function loadDrumKit(context, notes, fetchFile = fetch) {
   const buffers = new Map(), active = new Set();
   const out = context.createGain();
+  out.gain.value = 0.28; // About -11 dB: balance the close-miked kit against melodic banks.
   out.connect(context.destination);
   const pitches = [...new Set(notes)].filter(n => n >= 35 && n <= 81);
   try {
@@ -29,7 +30,7 @@ export async function loadDrumKit(context, notes, fetchFile = fetch) {
   } catch (error) { out.disconnect(); throw error; }
   return {
     out, buffers,
-    play(pitch, when = context.currentTime, {gain = 1} = {}) {
+    play(pitch, when = context.currentTime, {gain = 1, destination = out} = {}) {
       const buffer = buffers.get(pitch);
       if (!buffer) return null;
       when = Math.max(when, context.currentTime);
@@ -38,8 +39,8 @@ export async function loadDrumKit(context, notes, fetchFile = fetch) {
         if (voice.pitch === 46) voice.source.stop(when);
       }
       const source = context.createBufferSource(), level = context.createGain();
-      source.buffer = buffer; level.gain.value = Math.max(0, Math.min(1, gain));
-      source.connect(level); level.connect(out);
+      source.buffer = buffer; level.gain.value = Math.max(0, Math.min(1, gain)) * (destination === out ? 1 : 0.28);
+      source.connect(level); level.connect(destination);
       const voice = {pitch, source}; active.add(voice);
       source.onended = () => { active.delete(voice); source.disconnect(); level.disconnect(); };
       source.start(when); // One-shot drums decay naturally, independent of MIDI note-off.

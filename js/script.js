@@ -1,3 +1,5 @@
+import { createMidiMix } from "./midi-mix.mjs";
+import { voiceLayout, restoredVoices, createProgramSender } from "./midi-voices.mjs";
 import { sustainEvents, createSustainTimeline } from "./sustain.mjs";
 import { loadDrumKit, playbackNote } from "./drum-kit.mjs";
 import { DEFAULT_SOUNDFONT, DEFAULT_SOUNDFONT_URL, soundfontSources, loadSoundfontFromSources } from "./soundfont-sources.mjs";
@@ -153,6 +155,30 @@ async function getSFAudioCtx() {
   return rawCtx;
 }
 
+function channelAudioOutput(channel) {
+  const context = Tone.getContext().rawContext;
+  if (!SF.master) {
+    SF.master = context.createDynamicsCompressor();
+    SF.master.threshold.value = -6; SF.master.knee.value = 6;
+    SF.master.ratio.value = 8; SF.master.attack.value = 0.003; SF.master.release.value = 0.15;
+    SF.master.connect(context.destination);
+    SF.channels = new Map();
+  }
+  if (!SF.channels.has(channel)) {
+    const gain = context.createGain(); gain.gain.value = 100/127;
+    gain.connect(SF.master); SF.channels.set(channel,gain);
+  }
+  return SF.channels.get(channel);
+}
+function restoreMixAt(songTime, audioTime) {
+  for (let channel=0; channel<16; channel++) {
+    const output = channelAudioOutput(channel);
+    output.gain.cancelScheduledValues(audioTime);
+    output.gain.setValueAtTime(app.midiMix?.gainAt(channel,songTime) ?? 100/127,audioTime);
+    for (const controller of [7,11]) sendCC(controller,app.midiMix?.valueAt(channel,controller,songTime) ?? (controller===7?100:127),channel,audioTime);
+  }
+}
+
 function sfCacheKey(instrumentName, cfg = getSFConfig()) {
   return JSON.stringify([normalizeSFInstrumentName(instrumentName), cfg.soundfont, cfg.format, cfg.urlTemplate]);
 }
@@ -197,7 +223,12 @@ async function sfPlay(trackIndex, instrumentName, midiNote, velocity, whenSec, d
     // Loading may finish after Stop/seek or a song replacement. Never play late
     // notes in a burst when a soundfont download finally completes.
     if (token !== sfPlaybackToken || whenSec < Tone.getContext().rawContext.currentTime - 0.05) return null;
-    return inst.play(midiNote, whenSec, { gain: Math.max(0, Math.min(1, velocity)), duration });
+    const output = channelAudioOutput(app.tracks[trackIndex]?.channel ?? 0);
+    const voice = inst.play(midiNote, whenSec, { gain: Math.max(0, Math.min(1, velocity)), duration, destination: output });
+    // sample-player returns a voice gain node; route it through the MIDI channel
+    // bus without duplicating decoded instrument buffers across channels.
+    if (voice?.source) { voice.disconnect(); voice.connect(output); }
+    return voice;
   } catch (e) { console.warn('[Soundfont] Playback failed', e); return null; }
 }
 
@@ -920,8 +951,8 @@ function restoreSongConfig() {
       if (keyScaleSelect) keyScaleSelect.value = cfg.keyScale;
       savePref('keyScale', app.pitch.keyScale); changed = true;
     }
-    if (Array.isArray(cfg.sfInstrumentNames) && cfg.sfInstrumentNames.length === app.tracks.length) {
-      app.sfInstrumentNames = cfg.sfInstrumentNames.map((n,i) => normalizeSFInstrumentName(n, gmInstrumentName(app.tracks[i]?.program)));
+    if (cfg.voiceLayout === voiceLayout(app.tracks)) {
+      app.sfInstrumentNames = restoredVoices(cfg, app.tracks, app.tracks.map(t => gmInstrumentName(t.program)));
       disposeSFInstruments();
 
       changed = true;
@@ -939,6 +970,7 @@ function persistSongConfig() {
       keyScale: app.pitch.keyScale || 'major',
       originalTonic: app.pitch.originalTonicPref ?? null,
       originalScale: app.pitch.originalScalePref ?? null,
+      voiceLayout: voiceLayout(app.tracks),
       sfInstrumentNames: (app.sfInstrumentNames||[]).map((n,i) => normalizeSFInstrumentName(n, gmInstrumentName(app.tracks[i]?.program))),
     }));
   } catch {}
@@ -1011,6 +1043,16 @@ function saveRoles() { try { localStorage.setItem(`km_roles_${getSongKeyBase()}`
 function renderInstrumentsModal() {
   if (!instrumentsList) return;
   instrumentsList.innerHTML = '';
+  const reset = document.createElement('button');
+  reset.className = 'px-3 py-2 mb-2 bg-gray-700 rounded text-sm';
+  reset.textContent = 'Reset voices to MIDI originals';
+  reset.onclick = () => {
+    btnPause.click();
+    app.sfInstrumentNames = app.tracks.map(t => gmInstrumentName(t.program));
+    disposeSFInstruments(); persistSongConfig(); rescheduleTransport();
+    renderInstrumentsModal(); showOverlay('Original MIDI voices restored');
+  };
+  instrumentsList.appendChild(reset);
   const frag = document.createDocumentFragment();
   app.tracks.forEach((t, idx) => {
     const row = document.createElement('div');
@@ -1342,6 +1384,7 @@ function scheduleIfNeeded() {
   const token = app.renderToken;
   const isSoloActive = app.tracks.some(t => t.solo);
   const activeChannels = new Set(app.tracks.filter(t => isSoloActive ? t.solo : !t.muted).map(t => t.channel));
+  app.midiMix = createMidiMix(app.midi.tracks);
   app.sustainEvents = sustainEvents(app.midi.tracks, activeChannels);
   app.sustainTimeline = createSustainTimeline(app.sustainEvents, app.duration);
 
@@ -1365,20 +1408,23 @@ function scheduleIfNeeded() {
         events.push({type:'midiOff',time:end+tail,midi:mOut,channel:t.channel});
       });
     });
-    events.push(...app.sustainEvents);
-    const prio = {cc64:0,noteOn:1,visualOff:2,midiOff:3};
+    events.push(...app.sustainEvents,...app.midiMix.events);
+    const prio = {mixCC:0,cc64:0,noteOn:1,visualOff:2,midiOff:3};
     events.sort((a,b) => (a.time-b.time)||(prio[a.type]-prio[b.type]));
     events.forEach(ev => {
       Tone.Transport.schedule(schedTime => {
         if (token !== app.renderToken || modeSelect?.value !== 'listen') return;
         if (ev.type === 'noteOn') {
           if (shouldUseLocalAudio()) sfPlay(ev.trackIndex, app.sfInstrumentNames[ev.trackIndex]||'acoustic_grand_piano', ev.midi, ev.velocity, schedTime, ev.dur).catch(()=>{});
+          sendTrackProgram(ev.trackIndex ?? 0, schedTime);
           sendNoteOn(ev.midi, Math.round((ev.velocity||0)*127), ev.channel, schedTime);
           Tone.Draw.schedule(() => { if (token===app.renderToken) handleNoteOnVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi)); }, schedTime);
         } else if (ev.type === 'visualOff') {
           Tone.Draw.schedule(() => { if (token===app.renderToken) handleNoteOffVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi)); }, schedTime);
         } else if (ev.type === 'midiOff') {
           sendNoteOff(ev.midi, ev.channel, schedTime);
+        } else if (ev.type === 'mixCC') {
+          scheduleMixEvent(ev,schedTime);
         } else if (ev.type === 'cc64') {
           sendCC(64,ev.value|0,ev.channel,schedTime);
           Tone.Draw.schedule(() => { if (token===app.renderToken) updateSustainState(ev.channel,ev.value>=64,getPlaybackTime()); }, schedTime);
@@ -1399,6 +1445,7 @@ function scheduleIfNeeded() {
             sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, sustainedNoteDuration(n)/clamp(parseFloat(speed?.value||'1')||1,0.5,1.5)).catch(()=>{});
           }
           if (modeSelect?.value === 'listen') {
+            sendTrackProgram(ti, schedTime);
             sendNoteOn(mOut, Math.round(n.velocity*127), t.channel, schedTime);
             Tone.Draw.schedule(() => { if (token===app.renderToken && modeSelect?.value==='listen') handleNoteOnVisual(mOut,t.channel,colorForNoteObj(n)); }, schedTime);
           }
@@ -1427,6 +1474,7 @@ function scheduleIfNeeded() {
             if (token !== app.renderToken) return;
             const mOut = playbackNote(n, app.pitch.transpose);
             if (shouldUseLocalAudio()) sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, sustainedNoteDuration(n)/clamp(parseFloat(speed?.value||'1')||1,0.5,1.5)).catch(()=>{});
+            sendTrackProgram(ti, schedTime);
             sendNoteOn(mOut, Math.round((n.velocity||0)*127), t.channel, schedTime);
           }, time);
           Tone.Transport.schedule(offTime => { if (token===app.renderToken) sendNoteOff(playbackNote(n, app.pitch.transpose), t.channel, offTime); }, time+dur+app.midiIO.tailMs/1000);
@@ -1434,6 +1482,7 @@ function scheduleIfNeeded() {
       });
     }
 
+    for (const event of app.midiMix.events) Tone.Transport.schedule(time=>scheduleMixEvent(event,time),event.time);
     // Keep pedal messages on the same audio clock as scheduled note messages.
     for (const event of app.sustainEvents) {
       Tone.Transport.schedule(schedTime => {
@@ -2348,11 +2397,22 @@ function _echoKey(type,midi,ch){return `${ch&0x0f}:${midi&0x7f}:${type}`;}
 function markOutbound(type,midi,ch){try{app.midiIO._echo.set(_echoKey(type,midi,ch),Tone.Transport.seconds||0);}catch{}}
 function isLikelyEcho(type,midi,ch,nowSec){try{const t=app.midiIO._echo.get(_echoKey(type,midi,ch));if(t==null)return false;return(nowSec-t)<=(app.midiIO.echoWindowSec||0.3);}catch{return false;}}
 function _audioTimeToTs(audioTimeSec){try{const rctx=Tone.getContext().rawContext;return performance.now()+Math.max(0,(audioTimeSec-rctx.currentTime)*1000);}catch{return undefined;}}
+const programSender = createProgramSender((message, timestamp) => app.midiIO.output?.send(message, timestamp));
+function sendTrackProgram(trackIndex, audioTime) {
+  const track = app.tracks[trackIndex]; if (!track || !app.midiIO.output) return;
+  const selected = GM_NAMES.indexOf(app.sfInstrumentNames[trackIndex]);
+  try { programSender.set(track.channel, track.channel === 9 ? track.program : (selected < 0 ? track.program : selected),
+    audioTime != null ? _audioTimeToTs(audioTime) : undefined); } catch {}
+}
 function sendNoteOn(midi,velocity=100,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x90|(ch&0x0f),midi&0x7f,clamp(velocity,0,127)],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('on',midi,ch);}catch{}}
 function sendNoteOff(midi,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x80|(ch&0x0f),midi&0x7f,0],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('off',midi,ch);}catch{}}
 function sendCC(ctrl,val,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0xB0|(ch&0x0f),ctrl&0x7f,clamp(val,0,127)],schedTime!=null?_audioTimeToTs(schedTime):undefined);}catch{}}
-function panicAll(){sfPlaybackToken++;app.pedal.held.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear());try{app.midiIO.output?.clear?.();}catch{}try{SF.pool.stop();}catch{}for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
+function panicAll(){if(SF.channels)for(const output of SF.channels.values())output.gain.cancelScheduledValues(Tone.getContext().rawContext.currentTime);programSender.reset();sfPlaybackToken++;app.pedal.held.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear());try{app.midiIO.output?.clear?.();}catch{}try{SF.pool.stop();}catch{}for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
 function shouldUseLocalAudio(){return !app.midiIO.output;}
+function scheduleMixEvent(event,audioTime) {
+  channelAudioOutput(event.channel).gain.setValueAtTime(app.midiMix.gainAt(event.channel,event.time),audioTime);
+  sendCC(event.controller,event.value,event.channel,audioTime);
+}
 function sustainedNoteDuration(note) {
   const end = note.time + Math.max(0.02, note.duration);
   return Math.max(0.02, (app.sustainTimeline?.releaseTime(note.channel, end) ?? end) - note.time);
@@ -2410,8 +2470,8 @@ function buildListenEvents(isSoloActive){
       events.push({type:'midiOff',time:end+tail,midi:mOut,channel:ch});
     });
   });
-  events.push(...(app.sustainEvents || []));
-  const prio={cc64:0,noteOn:1,visualOff:2,midiOff:3};
+  events.push(...(app.sustainEvents || []),...(app.midiMix?.events || []));
+  const prio={mixCC:0,cc64:0,noteOn:1,visualOff:2,midiOff:3};
   events.sort((a,b)=>(a.time-b.time)||(prio[a.type]-prio[b.type]));
   return events;
 }
@@ -2421,6 +2481,7 @@ function reindexListenEvents(songTimeSec){
   app.listen.idx=lo;
 }
 function restoreSustainAt(songTime, audioTime) {
+  restoreMixAt(songTime,audioTime);
   for (let channel=0; channel<16; channel++) {
     const value = app.sustainTimeline?.stateAt(channel, songTime) || 0;
     updateSustainState(channel, value >= 64, songTime);
@@ -2431,6 +2492,7 @@ function startListenScheduler(){
   const rc=Tone.getContext().rawContext;
   if(!Number.isFinite(app.listen.baseSongTimeSec))app.listen.baseSongTimeSec=0;
   restoreSustainAt(app.listen.baseSongTimeSec, rc.currentTime);
+  programSender.reset();
   app.listen.startAudioTime=rc.currentTime; reindexListenEvents(app.listen.baseSongTimeSec); app.listen.playing=true;
   if(!Array.isArray(app.listen.events)||!app.listen.events.length){app.listen.events=buildListenEvents(app.tracks.some(t=>t.solo));reindexListenEvents(app.listen.baseSongTimeSec);}
   if(app.listen.intervalId){try{clearInterval(app.listen.intervalId);}catch{}}
@@ -2466,11 +2528,13 @@ function scheduleListenWindow(){
     switch(ev.type){
       case 'noteOn':
         if(shouldUseLocalAudio())sfPlay(ev.trackIndex??0,app.sfInstrumentNames[ev.trackIndex??0]||'acoustic_grand_piano',ev.midi,ev.velocity,whenAudio,Math.max(0.02,(Math.min(ev.time+(ev.dur||0),lE)-ev.time)/f)).catch(()=>{});
+        sendTrackProgram(ev.trackIndex ?? 0, whenAudio);
         sendNoteOn(ev.midi,Math.round((ev.velocity||0)*127),ev.channel,whenAudio);
         Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOnVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'visualOff':
         Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOffVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'midiOff': sendNoteOff(ev.midi,ev.channel,whenAudio); break;
+      case 'mixCC': scheduleMixEvent(ev,whenAudio); break;
       case 'cc64':
         sendCC(64,ev.value|0,ev.channel,whenAudio);
         Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)updateSustainState(ev.channel,ev.value>=64,ev.time);},whenAudio); break;

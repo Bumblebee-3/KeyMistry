@@ -216,8 +216,7 @@ GPL V3.
 
 ## Soundfont playback
 
-Choose **MIDI & Visual Settings → Soundfont → Bank** to compare FatBoy (the new
-installation default), Musyng Kite, and FluidR3. Existing saved bank choices are
+Choose **MIDI & Visual Settings → Soundfont → Bank** to compare Musyng Kite (the default), FatBoy, and FluidR3. Existing saved bank choices are
 preserved. MP3 and OGG are supported. Playback waits for active instruments;
 public bank downloads retry jsDelivr, GitHub Raw, and GitHub Pages. Custom URL
 templates use only the specified host. Bank changes pause playback.
@@ -247,3 +246,16 @@ pedal messages timestamped on the audio clock. Seeking/resuming restores pedal
 state, and Stop clears queued MIDI output. A missing pedal-up is bounded by the
 song end; drum one-shots ignore sustain. Sampled sounds still decay naturally
 and cannot exceed the duration of their recorded sample.
+
+Voice choices follow the MIDI's zero-based General MIDI program numbers. Saved
+voice overrides are restored only when channel/program/track layout matches;
+legacy filename-only overrides are ignored. Use **Instruments → Reset voices to
+MIDI originals** to discard manual voice changes. External MIDI output sends
+program changes before notes. The local drum bus is attenuated by approximately
+11 dB relative to its raw samples to keep percussion from overpowering melodies.
+
+Local playback respects per-channel MIDI volume (CC7) and expression (CC11),
+including changes during held notes and restoration after seeking. Instruments
+can share decoded samples while their voices use independent channel gain buses.
+A master limiter reduces overload in dense full-song arrangements. These mix
+controls also forward to external MIDI output on the playback clock.
