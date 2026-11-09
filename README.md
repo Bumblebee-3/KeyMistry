@@ -192,6 +192,18 @@ npm run build:css
 
 Start a local static server (`npm start` or `npx serve`) and open `app.html`.
 
+Playback performance regression checks (Node.js 18+, no extra dependencies):
+
+```sh
+node --test tests/playback-performance.test.mjs
+```
+
+The piano roll indexes note intervals so each frame visits only visible notes,
+including held notes and grouped practice chords. Tracks using the same soundfont
+instrument share its decoded samples. Tests cover seeking, visibility boundaries,
+shared loads, retries, and cancellation when songs change.
+
+
 PRs and ideas are welcome.
 
 ---

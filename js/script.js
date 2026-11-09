@@ -1,3 +1,4 @@
+import { createNoteIndex, createInstrumentPool } from "./playback-performance.mjs";
 import * as Tone from "https://esm.sh/tone@14.8.49";
 import { Midi } from "https://esm.sh/@tonejs/midi@2.0.28";
 
@@ -9,7 +10,7 @@ if (window.__KM_BLOCKED) { /* blocked */ }
 const SF = {
   playerLib: null,
   instruments: new Map(),
-  _loading: new Map(),
+  pool: createInstrumentPool(),
   _libPromise: null,
   _namesCache: new Map(),     // bank -> string[]
   _namesLoading: new Map(),   // bank -> Promise<string[]>
@@ -127,9 +128,6 @@ function buildSFUrl(name, sf, fmt, template) {
 
 function clearSFTrackCache(trackIndex) {
   SF.instruments.delete(trackIndex);
-  for (const key of SF._loading.keys()) {
-    if (key.startsWith(`${trackIndex}:`)) SF._loading.delete(key);
-  }
 }
 
 function loadSFLib() {
@@ -139,7 +137,7 @@ function loadSFLib() {
     const s = document.createElement('script');
     s.src = 'https://cdn.jsdelivr.net/npm/soundfont-player@0.12.0/dist/soundfont-player.min.js';
     s.onload = () => { SF.playerLib = window.Soundfont; resolve(); };
-    s.onerror = () => reject(new Error('soundfont-player failed to load'));
+    s.onerror = () => { SF._libPromise = null; s.remove(); reject(new Error('soundfont-player failed to load')); };
     document.head.appendChild(s);
   });
   return SF._libPromise;
@@ -151,39 +149,47 @@ async function getSFAudioCtx() {
   return rawCtx;
 }
 
+function sfCacheKey(instrumentName, cfg = getSFConfig()) {
+  return JSON.stringify([normalizeSFInstrumentName(instrumentName), cfg.soundfont, cfg.format, cfg.urlTemplate]);
+}
+
 async function getSFInstrument(trackIndex, instrumentName) {
   const cfg = getSFConfig();
   const resolvedName = normalizeSFInstrumentName(instrumentName);
-  const cacheKey = `${trackIndex}:${resolvedName}:${cfg.soundfont}:${cfg.format}`;
-  const cached = SF.instruments.get(trackIndex);
-  if (cached && cached._sfCacheKey === cacheKey) return cached;
-  if (SF._loading.has(cacheKey)) return SF._loading.get(cacheKey);
-  const p = (async () => {
+  const key = sfCacheKey(resolvedName, cfg);
+  const inst = await SF.pool.load(key, async () => {
     await loadSFLib();
     const ctx = await getSFAudioCtx();
-    const inst = await SF.playerLib.instrument(ctx, resolvedName, {
+    return SF.playerLib.instrument(ctx, resolvedName, {
       soundfont: cfg.soundfont,
       format: cfg.format,
       nameToUrl: (name, sf, fmt) => buildSFUrl(name, sf, fmt, cfg.urlTemplate),
     });
-    inst._sfName = resolvedName;
-    inst._sfCacheKey = cacheKey;
-    SF.instruments.set(trackIndex, inst);
-    SF._loading.delete(cacheKey);
-    return inst;
-  })();
-  SF._loading.set(cacheKey, p);
-  return p;
+  });
+  // An older instrument selection must not overwrite the current track cache.
+  if (sfCacheKey(app.sfInstrumentNames[trackIndex]) === key) {
+    SF.instruments.set(trackIndex, { key, instrument: inst });
+  }
+  return inst;
 }
 
+let sfPlaybackToken = 0;
 async function sfPlay(trackIndex, instrumentName, midiNote, velocity, whenSec, duration) {
+  const token = sfPlaybackToken;
   try {
-    const inst = await getSFInstrument(trackIndex, instrumentName);
+    const key = sfCacheKey(instrumentName);
+    const cached = SF.instruments.get(trackIndex);
+    const inst = (cached?.key === key ? cached.instrument : SF.pool.peek(key))
+      || await getSFInstrument(trackIndex, instrumentName);
+    // Loading may finish after Stop/seek or a song replacement. Never play late
+    // notes in a burst when a soundfont download finally completes.
+    if (token !== sfPlaybackToken || whenSec < Tone.getContext().rawContext.currentTime - 0.05) return null;
     return inst.play(midiNote, whenSec, { gain: Math.max(0, Math.min(1, velocity)), duration });
   } catch (e) { return null; }
 }
 
-function disposeSFInstruments() { SF.instruments.clear(); SF._loading.clear(); }
+function disposeSFInstruments() { SF.pool.clear(); SF.instruments.clear(); }
+
 function warmSFLib() { loadSFLib().catch(() => {}); }
 
 // ─────────────────────────────────────────────
@@ -697,6 +703,7 @@ btnLoadPrevious?.addEventListener('click', async () => {
 // INIT FROM MIDI
 // ─────────────────────────────────────────────
 function initFromMidi(midi) {
+  stopListenScheduler(false);
   try { Tone.Transport.stop(); Tone.Transport.cancel(); } catch {}
   try { stopAnimation({ clear: true }); } catch {}
   panicAll();
@@ -1818,6 +1825,9 @@ function drawKeyboard() {
   if (!c || !WIDTH || !HEIGHT) return;
   ensureKbOffscreen();
   // Always redraw offscreen if keys pressed/released or size changed
+  if (!kbDirty) for (const glow of app.keyGlow.values()) {
+    if (glow.state !== 'hold') { kbDirty = true; break; }
+  }
   if (kbDirty) renderKbToOffscreen();
   const kbY = HEIGHT - KEYBOARD_HEIGHT;
   c.drawImage(kbOffscreen, 0, kbY);
@@ -1855,7 +1865,7 @@ function drawNotes(currentTime) {
   const isSoloActive = app.tracks.some(t => t.solo);
   const nowMs = performance.now();
   const pulse = 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(nowMs / 250));
-  const waitingReq = app.practice.waiting ? new Set(app.practice.requiredSet) : null;
+  const waitingReq = app.practice.waiting ? app.practice.requiredSet : null;
   const hitY = hitLineY();
   const isListen = modeSelect?.value === 'listen';
   const isGuided = app.guided?.enabled && !isListen;
@@ -1885,7 +1895,10 @@ function drawNotes(currentTime) {
     const trackRole = hasRoles ? (app.roles[ti] || 'background') : 'background';
     const trackColor = ROLE_COLOR[trackRole] || ROLE_COLOR.background;
 
-    const notes = t.notes;
+    const notes = (t.visualIndex ||= createNoteIndex(t.notes, app.practice.groupTimeById))
+      .query(currentTime, currentTime + FALL + SPAWN_EARLY);
+    const gradientTop = enhance ? hexToRgba(trackColor, 0.8) : null;
+    const gradientBottom = enhance ? hexToRgba(shadeColor(trackColor, -10), 1.0) : null;
     for (let ni = 0; ni < notes.length; ni++) {
       const n = notes[ni];
       if (!handFilter(n)) continue;
@@ -1924,8 +1937,8 @@ function drawNotes(currentTime) {
       c.globalAlpha = trackOpac;
       if (enhance) {
         const grad = c.createLinearGradient(x, y - h, x, y);
-        grad.addColorStop(0, hexToRgba(trackColor, 0.8));
-        grad.addColorStop(1, hexToRgba(shadeColor(trackColor, -10), 1.0));
+        grad.addColorStop(0, gradientTop);
+        grad.addColorStop(1, gradientBottom);
         c.fillStyle = grad;
       } else {
         c.fillStyle = trackColor;
@@ -1958,6 +1971,7 @@ function drawNotes(currentTime) {
 // ANIMATION LOOP
 // ─────────────────────────────────────────────
 let rafId = null, animRunning = false;
+let lastTimelineUpdate = -Infinity;
 function startAnimation() {
   if (animRunning) return;
   animRunning = true; cancelAnimationFrame(rafId);
@@ -1966,7 +1980,10 @@ function startAnimation() {
     const t = getSmoothVisualTime();
     drawNotes(t);
     drawKeyboard();      // blits offscreen (cheap if kbDirty=false)
-    updateTimeUI(t);
+    const now = performance.now();
+    if (now - lastTimelineUpdate >= 100 || t >= app.duration) {
+      updateTimeUI(t); lastTimelineUpdate = now;
+    }
     lastTimeDrawn = t;
     rafId = requestAnimationFrame(loop);
   };
@@ -1983,6 +2000,8 @@ function updateTimeUI(t) {
   const clamped = d ? clamp((t/d)*100, 0, 100) : 0;
   if (!isNaN(clamped)) { try{ progress.value=String(clamped); progress.style.setProperty('--progress',`${clamped}%`); }catch{} }
   if (d && t >= d && !app.practice.loop.enabled) {
+    stopListenScheduler(false);
+    panicAll();
     Tone.Transport.stop(); stopAnimation({clear:true});
     if (modeSelect.value==='practice') showFeedback();
   }
@@ -1999,6 +2018,7 @@ function clearLoopTimer() {
 function startKeyGlow(midi, pressed, color) {
   const now = performance.now();
   const item = app.keyGlow.get(midi) || { state:'idle', start:now, color };
+  if (pressed && (item.state === 'fade-in' || item.state === 'hold') && item.color === color) return;
   if (pressed) app.keyGlow.set(midi, {state:'fade-in',start:now,end:now+100,color});
   else app.keyGlow.set(midi, {state:'fade-out',start:now,end:now+200,color:item.color||color});
   kbDirty = true;
@@ -2194,6 +2214,7 @@ function buildPracticeGroups(){
   app.practice.groups=groups; app.practice.currentIndex=0;
   app.practice.groupTimeById=new Map();
   for(const g of groups)for(const id of g.ids)app.practice.groupTimeById.set(id,g.time);
+  for (const track of app.tracks) track.visualIndex = createNoteIndex(track.notes, app.practice.groupTimeById);
   app.practice.earlyHits=new Map(); app.practice.skipWaitFor=new Set(); app.practice.satisfiedGroups=new Set();
 }
 function findUpcomingGroupNearTime(tCal){
@@ -2254,7 +2275,7 @@ function _audioTimeToTs(audioTimeSec){try{const rctx=Tone.getContext().rawContex
 function sendNoteOn(midi,velocity=100,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x90|(ch&0x0f),midi&0x7f,clamp(velocity,0,127)],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('on',midi,ch);}catch{}}
 function sendNoteOff(midi,ch=0,schedTime){const out=app.midiIO.output;if(!out)return;try{out.send([0x80|(ch&0x0f),midi&0x7f,0],schedTime!=null?_audioTimeToTs(schedTime):undefined);markOutbound('off',midi,ch);}catch{}}
 function sendCC(ctrl,val,ch=0){const out=app.midiIO.output;if(!out)return;try{out.send([0xB0|(ch&0x0f),ctrl&0x7f,clamp(val,0,127)]);}catch{}}
-function panicAll(){for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
+function panicAll(){sfPlaybackToken++;try{SF.pool.stop();}catch{}for(let ch=0;ch<16;ch++){sendCC(64,0,ch);const out=app.midiIO.output;if(!out)continue;try{out.send([0xB0|ch,123,0]);}catch{}try{out.send([0xB0|ch,120,0]);}catch{}try{out.send([0xB0|ch,121,0]);}catch{}}try{app.synths.forEach(s=>s?.releaseAll?.());}catch{}}
 function shouldUseLocalAudio(){return !app.midiIO.output;}
 
 // ─────────────────────────────────────────────
@@ -2351,6 +2372,7 @@ function scheduleListenWindow(){
     try{app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear());}catch{}
     kbDirty=true; app.listen.baseSongTimeSec=lS; app.listen.startAudioTime=nowA; reindexListenEvents(lS); return;
   }
+  const token = sfPlaybackToken;
   const limit=Math.min(wEnd,lE), events=app.listen.events;
   while(app.listen.idx<events.length){
     const ev=events[app.listen.idx];
@@ -2359,11 +2381,11 @@ function scheduleListenWindow(){
     const whenAudio=app.listen.startAudioTime+(ev.time-app.listen.baseSongTimeSec)/f;
     switch(ev.type){
       case 'noteOn':
-        if(shouldUseLocalAudio())sfPlay(ev.trackIndex??0,app.sfInstrumentNames[ev.trackIndex??0]||'acoustic_grand_piano',ev.midi,ev.velocity,whenAudio,Math.max(0.02,ev.dur||0)).catch(()=>{});
+        if(shouldUseLocalAudio())sfPlay(ev.trackIndex??0,app.sfInstrumentNames[ev.trackIndex??0]||'acoustic_grand_piano',ev.midi,ev.velocity,whenAudio,Math.max(0.02,(ev.dur||0)/f)).catch(()=>{});
         sendNoteOn(ev.midi,Math.round((ev.velocity||0)*127),ev.channel,whenAudio);
-        Tone.Draw.schedule(()=>handleNoteOnVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi)),whenAudio); break;
+        Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOnVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'visualOff':
-        Tone.Draw.schedule(()=>handleNoteOffVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi)),whenAudio); break;
+        Tone.Draw.schedule(()=>{if(token===sfPlaybackToken)handleNoteOffVisual(ev.midi,ev.channel,ev.color||getKeyGlowColor(ev.midi));},whenAudio); break;
       case 'midiOff': sendNoteOff(ev.midi,ev.channel,whenAudio); break;
       case 'cc64': updateSustainState(ev.channel,(ev.value|0)>=64,wSong); sendCC(64,ev.value|0,ev.channel); break;
     }
