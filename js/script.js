@@ -1,3 +1,4 @@
+import { createGuidedMatcher, noteLabel, guidedEventTime, defaultHandRoles, chordName } from "./guided-matcher.mjs";
 import { createMidiMix } from "./midi-mix.mjs";
 import { voiceLayout, restoredVoices, createProgramSender } from "./midi-voices.mjs";
 import { sustainEvents, createSustainTimeline } from "./sustain.mjs";
@@ -537,7 +538,7 @@ const app = {
   midiIO: {
     access: null, inputs: new Map(), outputs: new Map(),
     inId: null, outId: null, input: null, output: null, thru: false, tailMs: 60,
-    _echo: new Map(), echoWindowSec: 0.3,
+    _echo: new Map(), echoWindowSec: 0.03,
   },
   pedal: { sustainDown: new Map(), sustained: new Map(), held: new Map() },
   listen: {
@@ -773,6 +774,7 @@ btnLoadPrevious?.addEventListener('click', async () => {
 // INIT FROM MIDI
 // ─────────────────────────────────────────────
 function initFromMidi(midi) {
+  if(app.guided.enabled){app.guided.enabled=false;app.guided.sessionActive=false;app.guided.matcher=null;guidedPanel?.classList.add('hidden');syncGuidedControls();}
   stopListenScheduler(false);
   try { Tone.Transport.stop(); Tone.Transport.cancel(); } catch {}
   try { stopAnimation({ clear: true }); } catch {}
@@ -861,7 +863,7 @@ function initFromMidi(midi) {
     app.songCfgKey = `km_songcfg_${base}`;
   } catch { app.guided.progressKey = null; }
 
-  const hasTwoOrMore = app.tracks.length > 1;
+  const hasTwoOrMore = app.roles.includes('left') && app.roles.includes('right');
   app.guided.hasSeparateHands = hasTwoOrMore;
   const secLen = 20;
   app.guided.sectionLenSec = secLen;
@@ -875,7 +877,7 @@ function initFromMidi(midi) {
     index: i+1,
     mastery: { left: !hasTwoOrMore, right: !hasTwoOrMore, both: false },
     accByStage: { left: 0, right: 0, both: 0 },
-    lastTempo: 1,
+    lastTempo: 0.7, tempoByStage: {left:.7,right:.7,both:.7},
   }));
   app.guided.currentIndex = 0;
   app.guided.stage = hasTwoOrMore ? 'left' : 'both';
@@ -1024,12 +1026,9 @@ function getSongKeyBase() {
   catch { return 'unknown'; }
 }
 function autoAssignRoles() {
-  let melodicIndex = 0;
-  app.roles = app.tracks.map(t => {
-    if (t.channel === 9) return 'background';
-    return ['left', 'right'][melodicIndex++] || 'background';
-  });
+  app.roles = defaultHandRoles(app.tracks);
 }
+
 function loadRoles() {
   try {
     const s = localStorage.getItem(`km_roles_${getSongKeyBase()}`);
@@ -1107,7 +1106,7 @@ function ensureRolesScrollable() {
 }
 openRolesBtn?.addEventListener('click', () => { renderRolesModal(); rolesModal?.classList.remove('hidden'); try { ensureRolesScrollable(); rolesList?.focus(); } catch {} });
 rolesClose?.addEventListener('click', () => rolesModal?.classList.add('hidden'));
-rolesSave?.addEventListener('click', () => { saveRoles(); buildTrackUI(); rescheduleTransport(); rolesModal?.classList.add('hidden'); });
+rolesSave?.addEventListener('click', () => { app.guided.hasSeparateHands=app.roles.includes('left')&&app.roles.includes('right'); saveRoles(); buildTrackUI(); rescheduleTransport(); rolesModal?.classList.add('hidden'); if(app.guided.enabled)startGuidedPracticeCycle(); });
 rolesAuto?.addEventListener('click', () => { autoAssignRoles(); renderRolesModal(); });
 document.addEventListener('keydown', e => {
   if (!rolesModal || rolesModal.classList.contains('hidden')) return;
@@ -1125,6 +1124,7 @@ function restoreGuidedProgress() {
     const raw = localStorage.getItem(app.guided.progressKey);
     if (!raw) return;
     const data = JSON.parse(raw);
+    if(data.trackLayout && data.trackLayout!==voiceLayout(app.tracks))return;
     if (Array.isArray(data.stages) && data.stages.length) {
       const n = Math.min(app.guided.sections.length, data.stages.length);
       app.guided.stages = Array.from({length: app.guided.sections.length}, (_, i) => {
@@ -1133,7 +1133,9 @@ function restoreGuidedProgress() {
           index: i+1,
           mastery: sv ? {left:!!sv.left,right:!!sv.right,both:!!sv.both} : {left:!app.guided.hasSeparateHands,right:!app.guided.hasSeparateHands,both:false},
           accByStage: sv?.accByStage ? {left:sv.accByStage.left||0,right:sv.accByStage.right||0,both:sv.accByStage.both||0} : {left:0,right:0,both:0},
-          lastTempo: (sv && typeof sv.lastTempo === 'number') ? clamp(sv.lastTempo,0.5,1.5) : 1,
+          lastTempo: (sv && typeof sv.lastTempo === 'number') ? clamp(sv.lastTempo,0.5,1.5) : .7,
+          streakByStage: Object.fromEntries(['left','right','both'].map(phase=>[phase,Math.floor(clamp(Number(sv?.streakByStage?.[phase])||0,0,2))])),
+          tempoByStage: Object.fromEntries(['left','right','both'].map(phase=>[phase,clamp(Number(sv?.tempoByStage?.[phase] ?? sv?.lastTempo)||.7,.5,1.25)])),
         };
       });
       return;
@@ -1157,9 +1159,10 @@ function persistGuidedProgress() {
   try {
     localStorage.setItem(app.guided.progressKey, JSON.stringify({
       title: name.replace(/\.[^/.]+$/,''),
+      assessmentVersion:2,trackLayout:voiceLayout(app.tracks),
       separateHands: separate,
-      stages: app.guided.stages.map(st => ({stage:st.index,left:!!st.mastery.left,right:!!st.mastery.right,both:!!st.mastery.both,accByStage:{...st.accByStage},lastTempo:st.lastTempo||1})),
-      sections: Object.fromEntries(app.guided.stages.map((st,i) => [String(i+1), {left:!!st.mastery.left,right:!!st.mastery.right,both:!!st.mastery.both,accByStage:{...st.accByStage},lastTempo:st.lastTempo||1}])),
+      stages: app.guided.stages.map(st => ({stage:st.index,left:!!st.mastery.left,right:!!st.mastery.right,both:!!st.mastery.both,accByStage:{...st.accByStage},lastTempo:st.lastTempo||.7,tempoByStage:st.tempoByStage||{},streakByStage:st.streakByStage||{}})),
+      sections: Object.fromEntries(app.guided.stages.map((st,i) => [String(i+1), {left:!!st.mastery.left,right:!!st.mastery.right,both:!!st.mastery.both,accByStage:{...st.accByStage},lastTempo:st.lastTempo||.7,tempoByStage:st.tempoByStage||{},streakByStage:st.streakByStage||{}}])),
       completion: totalPhases ? Math.round((completedPhases/totalPhases)*100) : 0,
       lastPlayed: new Date().toISOString(),
     }));
@@ -1172,11 +1175,11 @@ function updateGuidedUI() {
   if (!stage) return;
   if (guidedSectionLabel) guidedSectionLabel.textContent = `Stage ${si+1} of ${app.guided.sections.length}`;
   if (guidedStageLabel) guidedStageLabel.textContent = app.guided.stage==='left'?'Left Hand':app.guided.stage==='right'?'Right Hand':'Both Hands';
-  if (guidedHint) guidedHint.textContent = app.guided.stage==='left'?'Now practice your left hand.':app.guided.stage==='right'?'Now practice your right hand.':'Try combining both hands!';
-  if (guidedScopeEl) guidedScopeEl.textContent = `Scope: ${si===0?'Section 1':`Sections 1–${si+1}`}`;
+  if (guidedHint && !app.guided.matcher) guidedHint.textContent = app.guided.stage==='left'?'Now practice your left hand.':app.guided.stage==='right'?'Now practice your right hand.':'Try combining both hands!';
+  if (guidedScopeEl) guidedScopeEl.textContent = `Scope: ${app.practice.loop.start>0 ? `Section ${si+1}` : `Sections 1–${si+1}`} · exact pitches`;
   const { total, correct } = app.practice.stats;
   const savedAcc = stage.accByStage?.[app.guided.stage];
-  const percent = total ? Math.round((correct/total)*100) : (savedAcc!=null ? Math.round(savedAcc) : (app.practice.lastLoopAccPercent||0));
+  const percent = app.guided.matcher ? app.guided.matcher.summary().accuracy : total ? Math.round((correct/total)*100) : (savedAcc!=null ? Math.round(savedAcc) : (app.practice.lastLoopAccPercent||0));
   if (guidedAccBar) guidedAccBar.style.width = `${percent}%`;
   if (guidedAccLabel) {
     const mk = ok => ok ? '✅' : '🔄';
@@ -1204,11 +1207,12 @@ function updateGuidedUI() {
 function isStageMastered(index, stage) { const st = app.guided.stages[index]; return !!st?.mastery?.[stage]; }
 function markStageOnContinue() {
   const { total, correct } = app.practice.stats;
-  const percent = total ? Math.round((correct/total)*100) : (app.practice.lastLoopAccPercent||0);
+  const percent = app.guided.lastResult?.accuracy ?? (total ? Math.round((correct/total)*100) : (app.practice.lastLoopAccPercent||0));
   const st = app.guided.stages[app.guided.currentIndex];
-  if (st) { if (st.accByStage) st.accByStage[app.guided.stage] = percent; st.mastery[app.guided.stage] = true; persistGuidedProgress(); updateGuidedUI(); }
+  if (st) { if (st.accByStage) st.accByStage[app.guided.stage] = percent; persistGuidedProgress(); updateGuidedUI(); }
 }
 function evaluateLoopPerformance() {
+  if (app.guided.enabled && app.guided.matcher) return evaluateGuidedAttempt();
   const ls = app.practice.loop?.start ?? 0;
   const le = app.practice.loop?.end ?? app.duration;
   const groups = app.practice.groups;
@@ -1256,10 +1260,12 @@ function setOverlayButtonsEnabled(en) {
 function showAccuracyOverlay() {
   if (!accuracyOverlay) return;
   const total = Number(app.practice?.stats?.total)||0, correct = Number(app.practice?.stats?.correct)||0;
-  const percent = total > 0 ? Math.round((correct/total)*100) : 0;
+  const percent = app.guided.lastResult?.accuracy ?? (total > 0 ? Math.round((correct/total)*100) : 0);
   if (accOvPercentEl) accOvPercentEl.textContent = String(percent);
-  if (accOvTimingEl) { const ms = avgTimingMs(); accOvTimingEl.textContent = `${ms>0?'+':''}${ms} ms`; }
-  app.guided.inputLocked = true; app.guided.overlayUnlockAt = performance.now()+5000;
+  if (accOvTimingEl) accOvTimingEl.textContent = app.guided.lastResult?.meanAbsMs == null ? '—' : `${app.guided.lastResult.meanAbsMs} ms average error`;
+  const detail = document.getElementById('guidedAttemptDetail');
+  if (detail) detail.textContent = guidedResultText(app.guided.lastResult);
+  app.guided.inputLocked = true; app.guided.overlayUnlockAt = performance.now()+1000;
   setOverlayButtonsEnabled(false); accuracyOverlay.classList.remove('hidden');
   let interval = accOvUnlockHint ? setInterval(() => {
     const rem = Math.ceil((app.guided.overlayUnlockAt - performance.now())/1000);
@@ -1271,12 +1277,11 @@ function showAccuracyOverlay() {
     accuracyOverlay.classList.add('hidden'); app.guided.inputLocked = false;
     if (app.practice?.loop) app.practice.loop._pending = false;
   };
-  accOvReplayBtn?.addEventListener('click', async () => {
-    if (performance.now() < app.guided.overlayUnlockAt) return; cleanup();
-    app.practice.stats = {total:0,correct:0,misses:[],timings:[]}; app.practice.matchedIds = new Set(); clearEarlyLookaheadState();
-    try { const { start } = app.practice.loop||{start:0}; Tone.Transport.seconds = start||0; updateTimeUI(start||0); Tone.Transport.start(`+${START_DELAY}`); startAnimation(); } catch {}
-  }, {once:true});
-  accOvContinueBtn?.addEventListener('click', async () => { if (performance.now() < app.guided.overlayUnlockAt) return; cleanup(); guidedPhaseContinueBtn?.click(); }, {once:true});
+  if (accOvReplayBtn) accOvReplayBtn.onclick = () => {
+    if (performance.now() < app.guided.overlayUnlockAt) return;
+    cleanup(); startGuidedPracticeCycle(); btnPlay.click();
+  };
+  if (accOvContinueBtn) accOvContinueBtn.onclick = () => { if (performance.now() < app.guided.overlayUnlockAt) return; cleanup(); guidedPhaseContinueBtn?.click(); };
 }
 function showGuidedDecision(percent) {
   if (!guidedDecision) return;
@@ -1284,7 +1289,7 @@ function showGuidedDecision(percent) {
   const text = app.guided.stage==='left'?'➡ Continue to Right Hand':app.guided.stage==='right'?'➡ Continue to Both Hands':'➡ Continue to Next Section';
   if (guidedPhaseContinueBtn) { guidedPhaseContinueBtn.textContent = text; guidedPhaseContinueBtn.disabled = false; guidedPhaseContinueBtn.classList.remove('opacity-60'); }
 }
-guidedPracticeAgainBtn?.addEventListener('click', () => guidedDecision?.classList.add('hidden'));
+guidedPracticeAgainBtn?.addEventListener('click', () => { guidedDecision?.classList.add('hidden'); startGuidedPracticeCycle(); btnPlay.click(); });
 guidedPhaseContinueBtn?.addEventListener('click', () => {
   guidedDecision?.classList.add('hidden'); markStageOnContinue();
   if (!app.guided.hasSeparateHands) { guidedNextSecBtn?.click(); return; }
@@ -1296,12 +1301,14 @@ guidedPhaseContinueBtn?.addEventListener('click', () => {
 function getStageEndTime(index) { const s = app.guided.sections[Math.max(0,Math.min(index,app.guided.sections.length-1))]; return s?s.end:0; }
 function setGuidedLoopToCurrentStage() {
   const end = getStageEndTime(app.guided.currentIndex);
-  app.practice.loop.enabled = true; app.practice.loop.start = 0; app.practice.loop.end = end;
+  const start = document.getElementById('guidedScopeMode')?.value==='review' ? 0 : (app.guided.sections[app.guided.currentIndex]?.start || 0);
+  app.practice.loop.enabled = true; app.practice.loop.start = start; app.practice.loop.end = end;
+  app.guided.clock={baseSong:start,baseTransport:start,rate:Number(speed.value)||1};
   if (loopToggle) loopToggle.checked = true;
-  if (loopStartInput) loopStartInput.value = '0';
+  if (loopStartInput) loopStartInput.value = String(start);
   if (loopEndInput) loopEndInput.value = String(Math.round(end*10)/10);
-  savePref('loopEnabled',true); savePref('loopStart',0); savePref('loopEnd',end);
-  try { Tone.Transport.seconds = 0; updateTimeUI(0); clearLoopTimer(); } catch {}
+  savePref('loopEnabled',true); savePref('loopStart',start); savePref('loopEnd',end);
+  try { Tone.Transport.seconds = start; updateTimeUI(start); clearLoopTimer(); } catch {}
 }
 function applyGuidedStageHand() {
   if (!app.guided.enabled) return;
@@ -1310,19 +1317,25 @@ function applyGuidedStageHand() {
 }
 function startGuidedPracticeCycle() {
   if (!app.guided.enabled) return;
+  app.guided.sessionActive=false;cancelCountIn();stopPracticeMetronome();
+  Tone.Transport.pause();stopAnimation({clear:true});panicAll();syncGuidedControls();
+  accuracyOverlay?.classList.add('hidden'); app.guided.inputLocked=false;
   if (modeSelect) modeSelect.value='practice';
-  app.practice.noteWait = true; if (noteWaitToggle) noteWaitToggle.checked = true;
+  if(!app.guided.hasSeparateHands)app.guided.stage='both';
+  app.practice.noteWait = document.getElementById('guidedFlowMode')?.value!=='rhythm'; if (noteWaitToggle) noteWaitToggle.checked = app.practice.noteWait;
   app.practice.autoContinue = false;
   app.practice.stats = {total:0,correct:0,misses:[],timings:[]}; app.practice.matchedIds = new Set();
   app.practice.lastLoopAccPercent = 0; clearEarlyLookaheadState(); updateGuidedUI();
   setGuidedLoopToCurrentStage(); applyGuidedStageHand();
   const st = app.guided.stages[app.guided.currentIndex];
-  const factor = clamp(Number(st?.lastTempo)||1, 0.5, 1.5);
+  const factor = clamp(Number(st?.tempoByStage?.[app.guided.stage] ?? st?.lastTempo)||.7, 0.5, 1.25);
   if (speed) { speed.value = String(factor); speed.dispatchEvent(new Event('input')); }
-  guidedDecision?.classList.add('hidden'); rescheduleTransport();
+  guidedDecision?.classList.add('hidden'); rescheduleTransport(); updateGuidedUI();
 }
 guidedToggleBtn?.addEventListener('click', () => {
+  const previousPosition=getPlaybackTime();
   app.guided.enabled = !app.guided.enabled;
+  syncGuidedControls();
   guidedPanel?.classList.toggle('hidden', !app.guided.enabled);
   if (app.guided.enabled) {
     try { cancelCountIn(); } catch {} try { stopPracticeMetronome(); } catch {}
@@ -1330,7 +1343,7 @@ guidedToggleBtn?.addEventListener('click', () => {
     try { stopAnimation({clear:true}); } catch {} try { panicAll(); } catch {}
     try { app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();app.pedal.sustainDown.clear();app.pedal.sustained.forEach(s=>s.clear()); kbDirty=true; const c=getCanvasContext();if(c)c.clearRect(0,0,WIDTH,HEIGHT-KEYBOARD_HEIGHT); drawKeyboard(); updateTimeUI(0); } catch {}
     try { applyGuidedPanelSavedPosition(); } catch {}
-    if (guidedPrompt&&guidedPromptMsg) { guidedPromptMsg.textContent=app.guided.hasSeparateHands?"Detected separate left and right hand tracks. You'll learn this song step-by-step — left, right, and then both together!":"This MIDI file doesn't differentiate left and right hand parts. You'll practice both together."; guidedPrompt.classList.remove('hidden'); }
+    if (guidedPrompt&&guidedPromptMsg) { guidedPromptMsg.textContent=app.guided.hasSeparateHands?"Tracks assigned Left and Right are practised separately, then together. Check the learning tracks; leave accompaniment as Background.":"You will practise the selected learning track as one part. Use hand roles to choose the piano part and keep accompaniment as Background."; guidedPrompt.classList.remove('hidden'); }
     try {
       const key = `km_handpref_${getSongKeyBase()}`;
       const saved = localStorage.getItem(key);
@@ -1350,7 +1363,11 @@ guidedToggleBtn?.addEventListener('click', () => {
       } else { app.guided.stage='both'; setHand('both'); }
     } catch {}
     startGuidedPracticeCycle(); persistGuidedProgress();
-  } else { try{cancelCountIn();}catch{} try{stopPracticeMetronome();}catch{} }
+  } else {
+    cancelCountIn();stopPracticeMetronome();Tone.Transport.pause();stopAnimation({clear:true});panicAll();
+    app.guided.sessionActive=false;app.guided.matcher=null;app.practice.waiting=false;
+    Tone.Transport.seconds=previousPosition;buildPracticeGroups();rescheduleTransport();
+  }
 });
 guidedPromptContinue?.addEventListener('click', () => guidedPrompt?.classList.add('hidden'));
 function markStageIfThreshold() {}
@@ -1476,13 +1493,13 @@ function scheduleIfNeeded() {
             if (shouldUseLocalAudio()) sfPlay(ti, app.sfInstrumentNames[ti]||'acoustic_grand_piano', mOut, n.velocity, schedTime, sustainedNoteDuration(n)/clamp(parseFloat(speed?.value||'1')||1,0.5,1.5)).catch(()=>{});
             sendTrackProgram(ti, schedTime);
             sendNoteOn(mOut, Math.round((n.velocity||0)*127), t.channel, schedTime);
-          }, time);
-          Tone.Transport.schedule(offTime => { if (token===app.renderToken) sendNoteOff(playbackNote(n, app.pitch.transpose), t.channel, offTime); }, time+dur+app.midiIO.tailMs/1000);
+          }, guidedTransportTime(time));
+          Tone.Transport.schedule(offTime => { if (token===app.renderToken) sendNoteOff(playbackNote(n, app.pitch.transpose), t.channel, offTime); }, guidedTransportTime(time+dur+app.midiIO.tailMs/1000));
         });
       });
     }
 
-    for (const event of app.midiMix.events) Tone.Transport.schedule(time=>scheduleMixEvent(event,time),event.time);
+    for (const event of app.midiMix.events) Tone.Transport.schedule(time=>scheduleMixEvent(event,time),app.guided.enabled?guidedTransportTime(event.time):event.time);
     // Keep pedal messages on the same audio clock as scheduled note messages.
     for (const event of app.sustainEvents) {
       Tone.Transport.schedule(schedTime => {
@@ -1491,13 +1508,13 @@ function scheduleIfNeeded() {
         if (modeSelect?.value === 'listen') Tone.Draw.schedule(() => {
           if (token === app.renderToken) updateSustainState(event.channel,event.value>=64,event.time);
         },schedTime);
-      },event.time);
+      },app.guided.enabled?guidedTransportTime(event.time):event.time);
     }
   }
 
   if (modeSelect.value === 'practice') {
-    buildPracticeGroups();
-    app.practice.groups.forEach((g, idx) => {
+    if(!app.guided.enabled)buildPracticeGroups();
+    if (!app.guided.enabled) app.practice.groups.forEach((g, idx) => {
       Tone.Transport.schedule(() => maybePauseForGroup(idx), Math.max(0, g.time-0.02));
     });
   }
@@ -1594,10 +1611,10 @@ btnPlay.addEventListener("click", async () => {
   if (!app.midi) return showOverlay("Upload a MIDI file first");
   if (!(await preparePlaybackAudio())) return;
   scheduleIfNeeded();
-  try { if (app.practice?.loop?.enabled) { const {start,end}=app.practice.loop; const t=Tone.Transport.seconds||0; if(!(t>=start&&t<end)){Tone.Transport.seconds=start;updateTimeUI(start);} } } catch {}
+  try { if (app.practice?.loop?.enabled) { const {start,end}=app.practice.loop; const t=app.guided.enabled?getPlaybackTime():(Tone.Transport.seconds||0); if(!(t>=start&&t<end)){Tone.Transport.seconds=app.guided.enabled?guidedTransportTime(start):start;updateTimeUI(start);} } } catch {}
   if (app.guided?.enabled && modeSelect?.value !== 'listen') {
     startGuidedCountInThen(() => {
-      try { if(app.practice?.loop?.enabled){const{start,end}=app.practice.loop;const t=Tone.Transport.seconds||0;if(!(t>=start&&t<end)){Tone.Transport.seconds=start;updateTimeUI(start);}}else{Tone.Transport.seconds=0;updateTimeUI(0);} } catch {}
+      try { if(app.practice?.loop?.enabled){const{start,end}=app.practice.loop;const t=app.guided.enabled?getPlaybackTime():(Tone.Transport.seconds||0);if(!(t>=start&&t<end)){Tone.Transport.seconds=app.guided.enabled?guidedTransportTime(start):start;updateTimeUI(start);}}else{const start=app.practice.loop.start||0;Tone.Transport.seconds=start;updateTimeUI(start);} } catch {}
       Tone.Transport.start(`+${START_DELAY}`); startPracticeMetronome(); startAnimation();
       if (fsPlayPauseIcon) fsPlayPauseIcon.textContent='Pause';
     });
@@ -1609,6 +1626,7 @@ btnPlay.addEventListener("click", async () => {
   startAnimation(); if (fsPlayPauseIcon) fsPlayPauseIcon.textContent='Pause';
 });
 btnPause.addEventListener("click", () => {
+  app.guided.sessionActive=false;
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) stopListenScheduler(true); else Tone.Transport.pause();
   try{cancelCountIn();}catch{} try{stopPracticeMetronome();}catch{}
   stopAnimation({clear:false}); panicAll();
@@ -1616,6 +1634,8 @@ btnPause.addEventListener("click", () => {
   kbDirty=true; if(fsPlayPauseIcon)fsPlayPauseIcon.textContent='Play';
 });
 btnStop.addEventListener("click", () => {
+  if(app.guided.enabled){btnPause.click();startGuidedPracticeCycle();stopAnimation({clear:true});panicAll();return;}
+  app.guided.sessionActive=false;
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler){stopListenScheduler(false);app.listen.baseSongTimeSec=0;}else{Tone.Transport.stop();Tone.Transport.seconds=0;}
   try{cancelCountIn();}catch{} try{stopPracticeMetronome();}catch{}
   updateTimeUI(0); stopAnimation({clear:true}); panicAll(); clearLoopTimer();
@@ -1623,18 +1643,21 @@ btnStop.addEventListener("click", () => {
   app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();kbDirty=true;
 });
 btnRestart.addEventListener("click", async () => {
+  if(app.guided.enabled){btnPause.click();startGuidedPracticeCycle();btnPlay.click();return;}
   await Tone.start();
   if (!app.midi) return;
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler){stopListenScheduler(false);app.listen.baseSongTimeSec=0;}else{Tone.Transport.stop();Tone.Transport.seconds=0;}
   clearLoopTimer(); panicAll();
   if (!(await preparePlaybackAudio())) return;
   app.liveKeys.clear();app.keyGlow.clear();app.upcomingKeys.clear();app._lastLandingFlash.clear();kbDirty=true;
+  if(app.guided.enabled)Tone.Transport.seconds=guidedTransportTime(app.practice.loop.start||0);
   scheduleIfNeeded();
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) startListenScheduler(); else Tone.Transport.start(`+${START_DELAY}`);
   startAnimation(); if(fsPlayPauseIcon)fsPlayPauseIcon.textContent='Pause';
 });
 progress.addEventListener("input", () => {
   if (!app.midi) return;
+  if(app.guided.enabled){btnPause.click();startGuidedPracticeCycle();showOverlay('Attempt restarted. Choose a section using the Guided Learning controls.');return;}
   const t = (parseFloat(progress.value)/100) * app.duration;
   panicAll(); app.liveKeys.clear(); app.keyGlow.clear();
   if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) {
@@ -1648,12 +1671,18 @@ progress.addEventListener("input", () => {
 });
 speed.addEventListener("input", () => {
   const v = parseFloat(speed.value);
-  if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) {
+  if(app.guided.enabled && modeSelect.value==='practice') {
+    const current=getPlaybackTime();
+    app.guided.clock={baseSong:current,baseTransport:Tone.Transport.seconds,rate:v};
+    Tone.Transport.bpm.value=clamp(app._originalBpm*v,20,300);
+    if(app.midi){app.scheduled=false;scheduleIfNeeded();if(Tone.Transport.state==='started')startPracticeMetronome();}
+  } else if (modeSelect?.value==='listen'&&app.listen?.useAudioScheduler) {
     try { if(app.listen.playing){const cur=getPlaybackTime();app.listen.baseSongTimeSec=cur;app.listen.startAudioTime=Tone.getContext().now();reindexListenEvents(cur);} } catch {}
   } else { Tone.Transport.bpm.value = clamp(app._originalBpm*v, 20, 300); }
   speedLabel.textContent = `${Math.round(v*100)}%`;
 });
 modeSelect.addEventListener("change", () => {
+  if(modeSelect.value==='listen'&&app.guided.enabled){app.guided.enabled=false;app.guided.sessionActive=false;app.guided.matcher=null;app.practice.waiting=false;guidedPanel?.classList.add('hidden');syncGuidedControls();}
   showOverlay(modeSelect.value==="practice"?"Practice Mode":"Listen Mode");
   app.practice.stats={total:0,correct:0,misses:[],timings:[]};
   if(app.listen?.useAudioScheduler)stopListenScheduler(false);
@@ -1790,16 +1819,9 @@ fsExit?.addEventListener('click', () => {
   canvasOriginalParent.appendChild(canvas); pianoFs.classList.add('hidden');
   requestAnimationFrame(()=>resizeCanvas());
 });
-fsPlayPause?.addEventListener('click', async () => {
-  await Tone.start(); warmSFLib();
-  try{Tone.getContext().latencyHint='interactive';Tone.getContext().lookAhead=Math.max(0.2,Tone.getContext().lookAhead||0.2);}catch{}
-  if (Tone.Transport.state==='started') { Tone.Transport.pause(); panicAll(); if(fsPlayPauseIcon)fsPlayPauseIcon.textContent='Play'; }
-  else {
-    scheduleIfNeeded();
-    try{if(app.practice?.loop?.enabled){const{start,end}=app.practice.loop;const t=Tone.Transport.seconds||0;if(!(t>=start&&t<end)){Tone.Transport.seconds=start;updateTimeUI(start);}}}catch{}
-    Tone.Transport.start((Tone.Transport.seconds||0)<0.02?`+${START_DELAY}`:undefined);
-    startAnimation(); if(fsPlayPauseIcon)fsPlayPauseIcon.textContent='Pause';
-  }
+fsPlayPause?.addEventListener('click', () => {
+  const active=app.guided.enabled ? app.guided.sessionActive : app.listen.playing||Tone.Transport.state==='started';
+  if(active)btnPause.click();else btnPlay.click();
 });
 enhancedToggle?.addEventListener('change', () => savePref('enhanced',enhancedToggle.checked));
 hitLineToggle?.addEventListener('change', () => savePref('hitLine',hitLineToggle.checked));
@@ -2035,7 +2057,7 @@ function drawNotes(currentTime) {
       let x = GEO.midiToXArr[visMidi] + (overlapIdx % 2 === 0 ? 1 : -1) * Math.min(2, overlapIdx);
       let w = baseW;
 
-      const isWaiting = waitingReq?.has(n.midi) && Math.abs(start - currentTime) < 2;
+      const isWaiting = waitingReq?.has(visMidi) && Math.abs(start - currentTime) < 2;
       if (isWaiting) w = baseW * (0.95 + 0.06 * pulse);
 
       // Draw fill
@@ -2054,8 +2076,8 @@ function drawNotes(currentTime) {
 
       // Outline for landing / waiting
       const nearStart = Math.abs(start - currentTime) < 0.02 || Math.abs(1 - tNorm) < 0.02;
-      const pressed = app.liveKeys.has(n.midi);
-      const isWaitingTarget = app.practice.waiting && waitingReq?.has(n.midi);
+      const pressed = app.liveKeys.has(visMidi);
+      const isWaitingTarget = app.practice.waiting && waitingReq?.has(visMidi);
       if (nearStart || isWaitingTarget) {
         c.strokeStyle = pressed ? "#22c55e" : isWaitingTarget ? "#ef4444" : "#f43f5e";
         c.lineWidth = 2;
@@ -2078,10 +2100,15 @@ function drawNotes(currentTime) {
 let rafId = null, animRunning = false;
 let lastTimelineUpdate = -Infinity;
 function startAnimation() {
+  if(app.guided.enabled && modeSelect.value==='practice') {
+    app.guided.sessionActive=true;
+    if(app.practice.waiting)app.guided.waitClock={wall:performance.now(),song:getPlaybackTime()};
+  }
   if (animRunning) return;
   animRunning = true; cancelAnimationFrame(rafId);
   const loop = () => {
     if (!animRunning) return;
+    if (app.guided.enabled && modeSelect.value==='practice') tickGuidedWait();
     const t = getSmoothVisualTime();
     drawNotes(t);
     drawKeyboard();      // blits offscreen (cheap if kbDirty=false)
@@ -2198,6 +2225,8 @@ function populateMIDIDevices() {
   if(midiConnDot)midiConnDot.style.backgroundColor=(app.midiIO.inputs.size||app.midiIO.outputs.size)?'#22c55e':'#ef4444';
 }
 function bindSelectedInput() {
+  app.guided.matcher?.releaseAll();
+  app.pedal.held.clear(); app.liveKeys.clear(); kbDirty=true;
   if(app.midiIO.input){try{app.midiIO.input.onmidimessage=null;}catch{}}
   app.midiIO.input=app.midiIO.inputs.get(app.midiIO.inId)||null;
   if(app.midiIO.input)app.midiIO.input.onmidimessage=onMIDIMessage;
@@ -2208,16 +2237,19 @@ function onMIDIMessage(e) {
   const velocity=data2/127;
   const now=Tone.Transport.seconds, nowCal=now+(app.practice.inputOffsetSec||0);
   if (app.guided?.inputLocked) {
+    if(cmd===0x80||(cmd===0x90&&velocity===0)){app.guided.matcher?.release(`${ch}:${note}`);handleNoteOffVisual(note,ch,getKeyGlowColor(note));}
     if(cmd===0x90&&velocity>0&&app.midiIO.thru)sendNoteOn(applyTranspose(note),Math.round(velocity*127),ch);
     else if((cmd===0x80||(cmd===0x90&&velocity===0))&&app.midiIO.thru)sendNoteOff(applyTranspose(note),ch);
     else if(cmd===0xB0&&app.midiIO.thru)sendCC(data1&0x7f,data2&0x7f,ch);
     return;
   }
   if (cmd===0x90&&velocity>0) {
-    const tNote=applyTranspose(note);
+    const tNote=app.guided.enabled ? note : applyTranspose(note);
     if(modeSelect?.value==='listen'){if(app.midiIO.thru)sendNoteOn(tNote,Math.round(velocity*127),ch);return;}
-    if(isLikelyEcho('on',tNote,ch,now))return;
-    handleNoteOnVisual(tNote,ch,colorForIncoming(note)); if(app.midiIO.thru)sendNoteOn(tNote,Math.round(velocity*127),ch);
+    if(app.midiIO.thru&&isLikelyEcho('on',tNote,ch,now))return;
+    if(app.midiIO.thru)sendNoteOn(tNote,Math.round(velocity*127),ch);
+    if (app.guided.enabled) { handleGuidedAttack(e,tNote,ch); return; }
+    handleNoteOnVisual(tNote,ch,colorForIncoming(note));
     checkNoteHit(tNote,nowCal);
     if(modeSelect.value==='practice'&&app.practice.noteWait){
       const ahead=findGroupsInLookahead(nowCal), tol=app.practice.octaveTol||0;
@@ -2227,14 +2259,15 @@ function onMIDIMessage(e) {
     }
     if(app.practice.waiting&&matchAndMarkRequired(tNote)&&isCurrentChordSatisfied())resumeFromGroupWait(now);
   } else if (cmd===0x80||(cmd===0x90&&velocity===0)) {
-    const tNote=applyTranspose(note);
+    app.guided.matcher?.release(`${ch}:${note}`);
+    const tNote=app.guided.enabled ? note : applyTranspose(note);
     if(modeSelect?.value==='listen'){if(app.midiIO.thru)sendNoteOff(tNote,ch);return;}
-    if(isLikelyEcho('off',tNote,ch,now))return;
-    handleNoteOffVisual(tNote,ch,colorForIncoming(note)); if(app.midiIO.thru)sendNoteOff(tNote,ch);
+    if(app.midiIO.thru&&isLikelyEcho('off',tNote,ch,now))return;
+    handleNoteOffVisual(tNote,ch,app.guided.enabled?getKeyGlowColor(tNote):colorForIncoming(note)); if(app.midiIO.thru)sendNoteOff(tNote,ch);
   } else if (cmd===0xB0) {
     const ctrl=data1&0x7f, val=data2&0x7f;
     if(ctrl===64)updateSustainState(ch,val>=64,now);
-    if(app.midiIO.thru)sendCC(ctrl,val);
+    if(app.midiIO.thru)sendCC(ctrl,val,ch);
   }
 }
 function updateSustainState(channel, isDown, now) {
@@ -2318,9 +2351,15 @@ bootstrap();
 // PRACTICE GROUPS & MIDI NOTE MATCHING
 // ─────────────────────────────────────────────
 function setHand(hand){
+  if(app.guided.enabled){
+    app.guided.sessionActive=false;Tone.Transport.pause();stopAnimation({clear:true});panicAll();
+    app.guided.stage=app.guided.hasSeparateHands?hand:'both';
+    hand=app.guided.stage;
+  }
   app.practice.hand=hand;
   if(handLeftBtn&&handRightBtn&&handBothBtn){handLeftBtn.className=`px-2 py-1 ${hand==='left'?'bg-blue-600':'bg-gray-700 hover:bg-gray-600'}`;handBothBtn.className=`px-2 py-1 ${hand==='both'?'bg-blue-600':'bg-gray-700 hover:bg-gray-600'}`;handRightBtn.className=`px-2 py-1 ${hand==='right'?'bg-blue-600':'bg-gray-700 hover:bg-gray-600'}`;}
   clearEarlyLookaheadState(); buildPracticeGroups(); rescheduleTransport();
+  if(app.guided.enabled)updateGuidedUI();
 }
 function handFilter(n){
   if(modeSelect?.value==='listen')return true;
@@ -2341,7 +2380,116 @@ function buildPracticeGroups(){
   for(const g of groups)for(const id of g.ids)app.practice.groupTimeById.set(id,g.time);
   for (const track of app.tracks) track.visualIndex = createNoteIndex(track.notes, app.practice.groupTimeById);
   app.practice.earlyHits=new Map(); app.practice.skipWaitFor=new Set(); app.practice.satisfiedGroups=new Set();
+  if (app.guided.enabled) resetGuidedMatcher();
 }
+function syncGuidedControls() {
+  for(const control of [loopToggle,loopStartInput,loopEndInput])if(control){control.disabled=app.guided.enabled;control.title=app.guided.enabled?'Choose a Guided Learning section and lesson scope.':'';}
+  if(noteWaitToggle){noteWaitToggle.disabled=app.guided.enabled;noteWaitToggle.title=app.guided.enabled?'Choose Learn notes or Rhythm in Guided Learning.':'';}
+  if(octaveTolInput){octaveTolInput.disabled=app.guided.enabled;octaveTolInput.title=app.guided.enabled?'Guided Learning requires the exact octave.':'';}
+}
+function guidedTransportTime(songTime) {
+  const clock=app.guided.clock;
+  return clock ? clock.baseTransport+(songTime-clock.baseSong)/clock.rate : songTime;
+}
+function resetGuidedMatcher() {
+  app.guided.matcher = createGuidedMatcher(app.practice.groups, {
+    start: app.practice.loop.enabled ? app.practice.loop.start : 0,
+    end: app.practice.loop.enabled ? app.practice.loop.end : app.duration,
+  });
+  app.guided.lastResult = null; app.guided.waitClock = null; app.guided.previewIndex=null;
+  app.practice.waiting = false; app.practice.requiredSet.clear(); app.practice.hitSet.clear();
+  app.practice.stats = {total:app.guided.matcher.summary().expected,correct:0,misses:[],timings:[]};
+  coachGuided();
+}
+function coachGuided(message='') {
+  const matcher=app.guided.matcher; if(!matcher)return;
+  const rhythm=document.getElementById('guidedFlowMode')?.value==='rhythm';
+  const next=matcher.next(rhythm ? getPlaybackTime()-.25*(Number(speed.value)||1) : -Infinity);
+  const remaining=next ? matcher.remaining(next.index).map(noteLabel).join(' · ') : '';
+  if(!matcher.summary().expected) {
+    if(guidedHint)guidedHint.textContent='No target notes here. Choose a section with notes and check the track hand assignments.';
+    if(document.getElementById('guidedPreview'))document.getElementById('guidedPreview').textContent='No target notes';
+    return;
+  }
+  if(guidedHint)guidedHint.textContent=message || (next ? 'Play the shown pitches. Release repeated keys before pressing again.' : 'Target sequence finished. Playback will show missed notes and timing at the end.');
+  const preview=document.getElementById('guidedPreview');
+  if(preview)preview.textContent=next ? `${chordName(next.pitches)}: ${remaining}` : 'End of target sequence';
+}
+function tickGuidedWait() {
+  if(!app.guided.sessionActive || Tone.Transport.state!=='started' || app.practice.waiting)return;
+  if(document.getElementById('guidedFlowMode')?.value==='rhythm') {
+    const next=app.guided.matcher?.next(getPlaybackTime()-.25*(Number(speed.value)||1));
+    if(next?.index!==app.guided.previewIndex) {app.guided.previewIndex=next?.index;coachGuided('Keep the pulse moving. Missed notes stay in your attempt score.');}
+    return;
+  }
+  const next=app.guided.matcher?.next(); if(!next)return;
+  if(getPlaybackTime() < next.time-.02)return;
+  app.practice.waiting=true; app.practice.currentIndex=next.index;
+  app.practice.requiredSet=new Set(next.pitches);
+  app.practice.hitSet=new Set(next.hits);
+  app.guided.waitClock={wall:performance.now(),song:getPlaybackTime()};
+  Tone.Transport.pause(); coachGuided('Waiting for the remaining chord notes. Use exact pitches and octaves.');
+}
+function handleGuidedAttack(event,pitch,channel) {
+  const matcher=app.guided.matcher; if(!matcher)return;
+  const rate=clamp(Number(speed.value)||1,.5,1.5);
+  const wall=Number.isFinite(event.receivedTime) ? event.receivedTime : (Number.isFinite(event.timeStamp) && Math.abs(event.timeStamp-performance.now())<60000 ? event.timeStamp : performance.now());
+  const anchor=app.practice.waiting ? app.guided.waitClock : null;
+  const songTime=guidedEventTime({songTime:getPlaybackTime(),receivedAt:wall,now:performance.now(),waitClock:anchor,rate,offset:app.practice.inputOffsetSec||0});
+  const result=matcher.press(`${channel}:${pitch}`,pitch,songTime,{
+    waitingIndex:app.practice.waiting ? app.practice.currentIndex : null, rate,
+    active:!!app.guided.sessionActive&&(Tone.Transport.state==='started'||app.practice.waiting),
+  });
+  if(result.kind==='held')return;
+  handleNoteOnVisual(pitch,channel,result.kind==='wrong'?'#ef4444':result.kind==='hit'?'#22c55e':getKeyGlowColor(pitch));
+  if(result.kind==='idle')return;
+  const summary=matcher.summary();
+  app.practice.stats.total=summary.expected;app.practice.stats.correct=summary.correct;
+  app.practice.stats.timings=matcher.timings;
+  scoreEl.textContent=String(summary.correct);
+  if(result.kind==='hit') {
+    const group=app.practice.groups[result.index];
+    for(let i=0;i<group.notes.length;i++)if(group.notes[i]===pitch)app.practice.matchedIds.add(group.ids[i]);
+    if(app.practice.waiting)app.practice.hitSet.add(pitch);
+    if(result.complete) {
+      app.practice.satisfiedGroups.add(result.index);
+      if(app.practice.waiting) {
+        app.practice.waiting=false;app.guided.waitClock=null;
+        Tone.Transport.start();
+      }
+    }
+    const ms=Math.round(Math.abs(result.timing)*1000);
+    coachGuided(ms<=150 ? 'Correct — keep a steady pulse.' : `Correct pitch, ${ms} ms ${result.timing<0?'early':'late'}. Try a slower tempo.`);
+  } else coachGuided(`Played ${noteLabel(pitch)}. Follow the remaining notes shown below.`);
+  updateGuidedUI();
+}
+function guidedResultText(result) {
+  if(!result)return '';
+  return `${result.correct}/${result.expected} pitches · ${result.missed} missed · ${result.extras} extra keys · ${result.timingAccuracy}% on time. `+
+    (!result.rhythmMode ? 'Practise the pitches here, then switch to Rhythm to earn mastery. ' : '')+
+    (result.weakNotes.length ? `Focus on ${result.weakNotes.join(', ')}.` : result.extras ? 'Aim for clean presses without extra keys.' : result.passed ? 'Repeat once more to build consistency.' : 'Slow down and follow the pulse.');
+}
+function evaluateGuidedAttempt() {
+  const result=app.guided.matcher.summary(true);
+  result.rhythmMode=document.getElementById('guidedFlowMode')?.value==='rhythm';
+  app.guided.lastResult=result;
+  app.guided.sessionActive=false;app.practice.waiting=false;
+  app.practice.stats.total=result.expected;app.practice.stats.correct=result.correct;
+  app.practice.lastLoopAccPercent=result.accuracy;
+  const stage=app.guided.stages[app.guided.currentIndex], phase=app.guided.stage;
+  const current=Number(speed.value)||1;
+  if(stage) {
+    stage.accByStage[phase]=result.accuracy;
+    stage.streakByStage ||= {};
+    if(result.rhythmMode)stage.streakByStage[phase]=result.passed ? (stage.streakByStage[phase]||0)+1 : 0;
+    if(stage.streakByStage[phase]>=2)stage.mastery[phase]=true;
+    stage.lastTempo=clamp(current+(result.passed ? .05 : -.05),.5,1.25);
+    stage.tempoByStage ||= {};stage.tempoByStage[phase]=stage.lastTempo;
+  }
+  if(guidedHint)guidedHint.textContent=guidedResultText(result);
+  updateGuidedUI();persistGuidedProgress();showGuidedDecision(result.accuracy);
+}
+
 function findUpcomingGroupNearTime(tCal){
   if(!app.practice.groups.length)return null;
   const si=Math.max(0,app.practice.currentIndex), mx=Math.min(app.practice.groups.length-1,si+3), win=app.practice.hitWindowSec||BASE_TOLERANCE;
@@ -2394,8 +2542,8 @@ function showFeedback(){
 // ECHO / MIDI OUTPUT HELPERS
 // ─────────────────────────────────────────────
 function _echoKey(type,midi,ch){return `${ch&0x0f}:${midi&0x7f}:${type}`;}
-function markOutbound(type,midi,ch){try{app.midiIO._echo.set(_echoKey(type,midi,ch),Tone.Transport.seconds||0);}catch{}}
-function isLikelyEcho(type,midi,ch,nowSec){try{const t=app.midiIO._echo.get(_echoKey(type,midi,ch));if(t==null)return false;return(nowSec-t)<=(app.midiIO.echoWindowSec||0.3);}catch{return false;}}
+function markOutbound(type,midi,ch){try{app.midiIO._echo.set(_echoKey(type,midi,ch),performance.now()/1000);}catch{}}
+function isLikelyEcho(type,midi,ch,nowSec){try{const t=app.midiIO._echo.get(_echoKey(type,midi,ch));if(t==null)return false;return(performance.now()/1000-t)<=(app.midiIO.echoWindowSec||0.03);}catch{return false;}}
 function _audioTimeToTs(audioTimeSec){try{const rctx=Tone.getContext().rawContext;return performance.now()+Math.max(0,(audioTimeSec-rctx.currentTime)*1000);}catch{return undefined;}}
 const programSender = createProgramSender((message, timestamp) => app.midiIO.output?.send(message, timestamp));
 function sendTrackProgram(trackIndex, audioTime) {
@@ -2439,6 +2587,9 @@ function applyTranspose(midi){return clamp(Math.round(midi+(app.pitch?.transpose
 // ─────────────────────────────────────────────
 function _audioPlaybackTime(){try{const rc=Tone.getContext().rawContext,f=clamp(parseFloat(speed?.value||'1')||1,0.5,1.5);return app.listen.baseSongTimeSec+(rc.currentTime-app.listen.startAudioTime)*f;}catch{return 0;}}
 function getPlaybackTime(){
+  if(app.guided.enabled && modeSelect?.value==='practice' && app.guided.clock) {
+    const clock=app.guided.clock;return clock.baseSong+(Tone.Transport.seconds-clock.baseTransport)*clock.rate;
+  }
   try{if(modeSelect?.value==='listen'&&app.listen?.useAudioScheduler&&app.listen.playing)return _audioPlaybackTime();}catch{}
   try{return Tone.Transport.seconds||0;}catch{return 0;}
 }
@@ -2449,7 +2600,7 @@ function getSmoothVisualTime(){
   if(!started){_sc.est=tone;_sc.lastRaf=now;_sc.lastState=started?'started':state;_sc.lastTone=tone;return tone;}
   if(_sc.lastState!=='started'||Math.abs(tone-_sc.est)>0.15){_sc.est=tone;_sc.lastRaf=now;_sc.lastState=state;_sc.lastTone=tone;return tone;}
   const dt=Math.max(0,(now-_sc.lastRaf)/1000);
-  _sc.est+=dt;_sc.lastRaf=now;_sc.lastState=state;_sc.lastTone=tone;
+  _sc.est+=dt*((app.guided.enabled||app.listen.playing)?(Number(speed.value)||1):1);_sc.lastRaf=now;_sc.lastState=state;_sc.lastTone=tone;
   _sc.est+=clamp(tone-_sc.est,-0.05,0.05)*0.2;
   return _sc.est;
 }
@@ -2620,3 +2771,13 @@ window.addEventListener('load',()=>setTimeout(maybeAutoStartWalkthrough,400));
 function countNoteTracks(midi){try{return midi?.tracks?.filter(t=>Array.isArray(t.notes)&&t.notes.length>0).length||0;}catch{return 0;}}
 function openConfirmModal(message,title='Confirm'){return new Promise(resolve=>{if(multiTrackTitle)multiTrackTitle.textContent=title;if(multiTrackText)multiTrackText.textContent=message;multiTrackModal?.classList.remove('hidden');const cleanup=()=>multiTrackModal?.classList.add('hidden');multiTrackCancel?.addEventListener('click',()=>{cleanup();resolve(false);},{once:true});multiTrackContinue?.addEventListener('click',()=>{cleanup();resolve(true);},{once:true});});}
 async function shouldProceedWithMultiTrack(midi){const n=countNoteTracks(midi);if(n<=3)return true;const ok=await openConfirmModal([`This MIDI appears to have ${n} instrument tracks.`,'','For best results, use a solo piano MIDI. You can continue, but you may need to mute extra tracks.','','Continue loading this MIDI?'].join('\n'),'Multiple Instruments Detected');if(ok)showOverlay('Tip: Use the Mute/Solo buttons in the Tracks panel.',2000);return ok;}
+
+document.getElementById('guidedScopeMode')?.addEventListener('change', () => {
+  if (app.guided.enabled) { btnPause.click(); startGuidedPracticeCycle(); }
+});
+
+document.getElementById('guidedFlowMode')?.addEventListener('change', () => {
+  if (app.guided.enabled) { btnPause.click(); startGuidedPracticeCycle(); }
+});
+
+document.getElementById('guidedRolesBtn')?.addEventListener('click',()=>openRolesBtn?.click());

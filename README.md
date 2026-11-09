@@ -52,12 +52,13 @@ Demo: https://bumblebee-3.github.io/KeyMistry/
   - Early‑hit lookahead and octave tolerance (±0..2) for forgiving matching
   - Input timing offset calibration (±200 ms) to match your device/latency
   - Loop any range; per‑loop feedback (accuracy, timings)
-- Guided Learning (stages)
-  - Sections (~20s each) form cumulative stages: Left → Right → Both (or Both only if no hand split)
-  - End‑of‑stage accuracy overlay with a brief 5s lock; choose Replay or Continue explicitly
-  - Partial‑credit scoring per note, full credit for satisfied chords; no accidental auto‑continue
-  - Adaptive tempo nudge on strong accuracy; per‑stage tempo is remembered
-  - Progress is saved per song and summarized in the Dashboard
+- Guided Learning
+  - Learn notes with chord waits, then practise Rhythm with continuous playback
+  - Focus on one section or choose cumulative review
+  - Exact pitch/octave matching; one attack scores once, repeated keys require release
+  - Separate pitch accuracy, missed/extra notes, and real-time timing feedback
+  - Two strong Rhythm attempts earn mastery; navigation does not award it
+  - Gentle adaptive tempo per hand/phase, with saved progress
 - Transpose & Key
   - Auto‑detects song key on load; adjust Key/Scale and Transpose with live re‑scheduling
   - Per‑song config (key/transpose) is remembered across sessions
@@ -112,8 +113,8 @@ Open the app in a desktop browser with Web MIDI (Chrome/Edge) and grant MIDI per
 
 6. Guided Learning
   - Click “Guided” to open the panel; stages progress Left → Right → Both (if applicable)
-  - Sections are ~20s each and cumulative across the song
-  - When a stage ends, an accuracy overlay appears (locked for ~5s), then choose Replay/Continue
+  - Sections are ~20s each; choose focused practice or cumulative review
+  - When a stage ends, an accuracy overlay appears (locked briefly for ~1s), then choose Replay/Continue
 
 7. Transpose & Key
   - Open Transpose & Key; use Auto‑Detect, then adjust Key/Scale or Transpose as needed
@@ -259,3 +260,31 @@ including changes during held notes and restoration after seeking. Instruments
 can share decoded samples while their voices use independent channel gain buses.
 A master limiter reduces overload in dense full-song arrangements. These mix
 controls also forward to external MIDI output on the playback clock.
+
+
+## Guided practice workflow
+
+1. Choose learning tracks and their Left/Right roles. Keep accompaniment and drums
+   as Background. New arrangements prefer piano tracks, but track numbers do not
+   reliably identify hands—review the assignments. Existing saved roles are kept.
+2. Use **Learn notes** for exact pitches and chord shapes. The preview names notes,
+   common chords/inversions, and intervals. A physically held key cannot satisfy
+   a new repeated note; release it and press again, even with sustain down.
+3. Switch to **Rhythm** when comfortable. Playback continues through mistakes so
+   missed notes remain visible in the result. Extra key attacks reduce accuracy:
+   `correct pitches / (expected pitches + extra attacks)`. Unison duplicates
+   across tracks count as one playable key.
+4. Review missed notes, extra attacks, the proportion within 150 ms, and average
+   absolute timing error. Input timestamps and the input-offset calibration are
+   measured in real time, including during waits and at slow tempos.
+5. Mastery requires two consecutive strong Rhythm attempts (at least 90% pitch
+   accuracy and 80% on time). Each phase remembers its tempo; suggested adjustments
+   are five percentage points, bounded to 50–125%. Continue can move on without
+   granting mastery. Existing saved mastery is preserved.
+
+A new lesson starts at 70% tempo. Current-section practice is the default;
+Cumulative review combines earlier sections. Changing sections/hands/style or
+seeking restarts the attempt. Pausing stops scoring. MIDI keyboard input is
+required; these scores assess key attacks and timing, not fingering technique
+or how long a note is physically held. MIDI echo detection only applies to
+MIDI Thru and uses a short real-time window.

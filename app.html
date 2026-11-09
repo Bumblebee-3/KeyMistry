@@ -264,7 +264,8 @@
               <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl max-w-md w-[92%] p-5 text-center">
                 <div class="text-sm text-emerald-300 font-semibold mb-1">Section Complete!</div>
                 <div class="text-3xl font-bold mb-2"><span id="accOvPercent">0</span>% accuracy</div>
-                <div class="text-sm opacity-80 mb-4">Avg timing: <span id="accOvTiming">0 ms</span></div>
+                <div class="text-sm opacity-80 mb-4">Timing: <span id="accOvTiming">0 ms</span></div>
+                <p id="guidedAttemptDetail" class="text-sm mb-4" role="status"></p>
                 <div class="flex items-center justify-center gap-2">
                   <button id="accReplayBtn" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Replay Section</button>
                   <button id="accContinueBtn" class="px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">Continue</button>
@@ -302,10 +303,22 @@
     
     <div id="guidedPanel" class="fixed right-3 bottom-3 z-[60] hidden w-[340px] max-w-[92vw] bg-gray-900/80 border border-gray-700 rounded-2xl p-4 backdrop-blur shadow-xl">
   <h3 id="guidedPanelHeader" class="text-lg font-semibold flex items-center gap-2 cursor-move select-none">Guided Learning</h3>
-      <p class="text-xs opacity-70 mb-2">Progressive, cumulative stages.</p>
+      <p class="text-xs opacity-70 mb-2">Learn a phrase, improve its rhythm, then review it in context.</p>
       <div class="text-sm"><span id="guidedSectionLabel">Stage 1 of 1</span> — <span id="guidedStageLabel" class="text-teal-300">Left Hand</span></div>
+      <label class="text-xs block mb-2">Practice style
+        <select id="guidedFlowMode" class="bg-gray-800 rounded p-1">
+          <option value="learn">Learn notes — wait for me</option><option value="rhythm">Rhythm — keep moving</option>
+        </select>
+      </label>
+      <label class="text-xs block mb-2">Lesson scope
+        <select id="guidedScopeMode" class="bg-gray-800 rounded p-1">
+          <option value="focus">Current section</option><option value="review">Cumulative review</option>
+        </select>
+      </label>
+      <button id="guidedRolesBtn" class="text-xs underline mb-2">Choose learning tracks / hand roles</button>
+      <p class="text-xs opacity-70">Mastery: two Rhythm runs with ≥90% pitch accuracy and ≥80% of notes within 150 ms. Extra keys reduce accuracy.</p>
       <div id="guidedScope" class="text-xs opacity-70">Scope: Section 1</div>
-      <div id="guidedHint" class="text-xs text-white/70 mt-1">Now practice your left hand.</div>
+      <div role="status" aria-live="polite" id="guidedHint" class="text-xs text-white/70 mt-1">Now practice your left hand.</div>
       
       <div class="mt-2">
         <div class="w-full h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -337,8 +350,8 @@
         </div>
       </div>
       
-      <div id="guidedPreview" class="mt-2 h-8 rounded-lg bg-gray-800/60 border border-gray-700 flex items-center justify-center text-[10px] opacity-75">
-        Next Stage Preview
+      <div id="guidedPreview" class="mt-2 py-2 px-2 text-center rounded-lg bg-gray-800/60 border border-gray-700 flex items-center justify-center text-[10px] opacity-75">
+        Next required notes
       </div>
       
     </div>
